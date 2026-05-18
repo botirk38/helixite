@@ -1,4 +1,4 @@
-use helixite::{Direction, HelixiteBuilder, HelixiteError, Value};
+use helixite::{HelixiteBuilder, HelixiteError, Value};
 use tempfile::tempdir;
 
 #[test]
@@ -77,7 +77,7 @@ fn test_neighbors_out_direction() {
     db.add_edge(a, b, "knows", Vec::new()).unwrap();
     db.add_edge(a, c, "knows", Vec::new()).unwrap();
 
-    let neighbors = db.neighbors(a, Direction::Out, None).unwrap();
+    let neighbors = db.node(a).out_any().collect_nodes().unwrap();
     assert_eq!(neighbors.len(), 2);
 }
 
@@ -93,7 +93,7 @@ fn test_neighbors_in_direction() {
     db.add_edge(a, c, "knows", Vec::new()).unwrap();
     db.add_edge(b, c, "knows", Vec::new()).unwrap();
 
-    let neighbors = db.neighbors(c, Direction::In, None).unwrap();
+    let neighbors = db.node(c).in_any().collect_nodes().unwrap();
     assert_eq!(neighbors.len(), 2);
 }
 
@@ -109,11 +109,11 @@ fn test_neighbors_with_label_filter() {
     db.add_edge(a, b, "knows", Vec::new()).unwrap();
     db.add_edge(a, c, "follows", Vec::new()).unwrap();
 
-    let knows = db.neighbors(a, Direction::Out, Some("knows")).unwrap();
+    let knows = db.node(a).out("knows").collect_edges().unwrap();
     assert_eq!(knows.len(), 1);
     assert_eq!(knows[0].label, "knows");
 
-    let follows = db.neighbors(a, Direction::Out, Some("follows")).unwrap();
+    let follows = db.node(a).out("follows").collect_edges().unwrap();
     assert_eq!(follows.len(), 1);
     assert_eq!(follows[0].label, "follows");
 }

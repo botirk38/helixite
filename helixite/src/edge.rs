@@ -12,3 +12,9 @@ pub struct Edge {
     pub label: String,
     pub properties: BTreeMap<String, Value>,
 }
+
+#[derive(Debug, Clone, Copy)]
+pub enum Direction {
+    Out,
+    In,
+}
