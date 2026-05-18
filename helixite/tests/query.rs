@@ -251,3 +251,74 @@ fn test_nodes_property_persists_after_reopen() {
         .unwrap();
     assert_eq!(alices.len(), 1);
 }
+
+#[test]
+fn test_multi_index_intersection() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    db.add_node(
+        "User",
+        vec![
+            ("name".to_string(), Value::String("Alice".to_string())),
+            ("age".to_string(), Value::Int(30)),
+            ("city".to_string(), Value::String("NYC".to_string())),
+        ],
+    )
+    .unwrap();
+    db.add_node(
+        "User",
+        vec![
+            ("name".to_string(), Value::String("Alice".to_string())),
+            ("age".to_string(), Value::Int(25)),
+            ("city".to_string(), Value::String("LA".to_string())),
+        ],
+    )
+    .unwrap();
+    db.add_node(
+        "User",
+        vec![
+            ("name".to_string(), Value::String("Bob".to_string())),
+            ("age".to_string(), Value::Int(30)),
+            ("city".to_string(), Value::String("NYC".to_string())),
+        ],
+    )
+    .unwrap();
+
+    let result = db
+        .nodes()
+        .where_eq("name", Value::String("Alice".to_string()))
+        .where_eq("age", Value::Int(30))
+        .collect()
+        .unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(
+        result[0].properties.get("city"),
+        Some(&Value::String("NYC".to_string()))
+    );
+
+    let result = db
+        .nodes()
+        .where_eq("age", Value::Int(30))
+        .where_eq("city", Value::String("NYC".to_string()))
+        .collect()
+        .unwrap();
+    assert_eq!(result.len(), 2);
+
+    let result = db
+        .nodes()
+        .where_eq("name", Value::String("Alice".to_string()))
+        .where_eq("age", Value::Int(30))
+        .where_eq("city", Value::String("NYC".to_string()))
+        .collect()
+        .unwrap();
+    assert_eq!(result.len(), 1);
+
+    let result = db
+        .nodes()
+        .where_eq("name", Value::String("Alice".to_string()))
+        .where_eq("age", Value::Int(99))
+        .collect()
+        .unwrap();
+    assert_eq!(result.len(), 0);
+}
