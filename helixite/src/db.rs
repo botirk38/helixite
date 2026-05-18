@@ -120,6 +120,10 @@ impl<S: StorageEngine> Helixite<S> {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    pub fn storage(&self) -> &S {
+        &self.storage
+    }
 }
 
 fn decode_u64(bytes: &[u8], name: &str) -> Result<u64> {
