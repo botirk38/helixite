@@ -1,117 +1,126 @@
 use std::collections::{BinaryHeap, HashSet};
 
+use crate::error::Result;
 use crate::id::NodeId;
 use crate::storage::StorageEngine;
 use crate::storage::engine::Db;
 
-use super::VectorIndex;
+use super::keys::*;
+use super::similarity::SimilarityKind;
 
-const M: usize = 16;
-const EF_CONSTRUCTION: usize = 200;
-const EF_SEARCH: usize = 50;
+pub(crate) struct Hnsw;
 
-pub(crate) fn search(
-    storage: &impl StorageEngine,
-    label: &str,
-    property: &str,
-    query: &[f32],
-    k: usize,
-) -> crate::error::Result<Vec<(NodeId, f32)>> {
-    let prefix = VectorIndex::prefix(super::VectorIndexKind::Hnsw, label, property);
-    let entries = storage.scan_prefix(Db::VectorIndexes, &prefix)?;
+impl Hnsw {
+    pub(crate) fn insert_into_txn(
+        txn: &mut dyn crate::storage::StorageTxn,
+        label: &str,
+        property: &str,
+        node_id: NodeId,
+        vector: &[f32],
+        meta: &VectorIndexMeta,
+    ) -> Result<()> {
+        let level = random_level(node_id, meta.m);
 
-    let mut index = HnswIndex::new(M, EF_CONSTRUCTION);
-    for (key, value) in entries {
-        let node_id = VectorIndex::decode_node_id(&key).ok_or_else(|| {
-            crate::error::HelixiteError::Storage("corrupt vector index key".into())
-        })?;
-        let vector = deserialize_vector(&value)?;
-        index.insert(node_id, vector);
-    }
+        txn.put(
+            Db::VectorIndexes,
+            &vec_key(label, property, node_id),
+            &serialize_vector(vector),
+        )?;
+        txn.put(
+            Db::VectorIndexes,
+            &lvl_key(label, property, node_id),
+            &[level],
+        )?;
 
-    Ok(index.search(query, k, EF_SEARCH))
-}
-
-fn deserialize_vector(bytes: &[u8]) -> crate::error::Result<Vec<f32>> {
-    if !bytes.len().is_multiple_of(4) {
-        return Err(crate::error::HelixiteError::Storage(
-            "corrupt vector data: length not multiple of 4".into(),
-        ));
-    }
-    let mut vector = Vec::with_capacity(bytes.len() / 4);
-    for chunk in bytes.chunks_exact(4) {
-        let f = f32::from_le_bytes(chunk.try_into().unwrap());
-        vector.push(f);
-    }
-    Ok(vector)
-}
-
-struct HnswNode {
-    node_id: NodeId,
-    vector: Vec<f32>,
-    layers: Vec<Vec<NodeId>>,
-}
-
-struct HnswIndex {
-    nodes: Vec<HnswNode>,
-    entry_point: Option<NodeId>,
-    max_level: u8,
-    m: usize,
-    ef_construction: usize,
-}
-
-impl HnswIndex {
-    fn new(m: usize, ef_construction: usize) -> Self {
-        Self {
-            nodes: Vec::new(),
-            entry_point: None,
-            max_level: 0,
-            m,
-            ef_construction,
-        }
-    }
-
-    fn insert(&mut self, node_id: NodeId, vector: Vec<f32>) {
-        let level = Self::random_level(self.m);
-        let new_node = HnswNode {
-            node_id,
-            vector,
-            layers: vec![Vec::new(); (level + 1) as usize],
+        let entry_point = match meta.entry_point {
+            Some(ep) => ep,
+            None => {
+                txn.put(
+                    Db::VectorIndexes,
+                    &ep_key(label, property),
+                    &node_id.to_le_bytes(),
+                )?;
+                let new_meta = VectorIndexMeta {
+                    entry_point: Some(node_id),
+                    max_level: level,
+                    ..meta.clone()
+                };
+                txn.put(
+                    Db::VectorIndexes,
+                    &meta_key(label, property),
+                    &new_meta.serialize(),
+                )?;
+                return Ok(());
+            }
         };
 
-        if self.entry_point.is_none() {
-            self.entry_point = Some(node_id);
-            self.max_level = level;
-            self.nodes.push(new_node);
-            return;
-        }
-
-        let entry = self.entry_point.unwrap();
-        let Some(entry_node) = self.find_node(entry) else {
-            self.nodes.push(new_node);
-            return;
+        let ep_level = {
+            let lvl_bytes = txn
+                .get(Db::VectorIndexes, &lvl_key(label, property, entry_point))?
+                .ok_or_else(|| {
+                    crate::error::HelixiteError::Storage("missing entry point level".into())
+                })?;
+            lvl_bytes[0]
         };
-        let entry_level = entry_node.layers.len() as u8 - 1;
 
-        let mut current = entry;
-        if entry_level > level {
-            for l in ((level + 1)..=entry_level).rev() {
-                let neighbors = self.search_layer(current, &new_node.vector, 1, l as usize);
+        let mut current = entry_point;
+        let mut new_entry_point = entry_point;
+        if level > ep_level {
+            for l in ((ep_level + 1)..=level).rev() {
+                let ctx = SearchCtx {
+                    label,
+                    property,
+                    query: vector,
+                    ef: 1,
+                    level: l,
+                    similarity: meta.similarity,
+                };
+                let neighbors = search_layer_txn(txn, current, &ctx)?;
+                if let Some(&best) = neighbors.first() {
+                    current = best;
+                }
+            }
+            new_entry_point = node_id;
+        } else if ep_level > level {
+            for l in ((level + 1)..=ep_level).rev() {
+                let ctx = SearchCtx {
+                    label,
+                    property,
+                    query: vector,
+                    ef: 1,
+                    level: l,
+                    similarity: meta.similarity,
+                };
+                let neighbors = search_layer_txn(txn, current, &ctx)?;
                 if let Some(&best) = neighbors.first() {
                     current = best;
                 }
             }
         }
 
-        for l in (0..=level.min(entry_level)).rev() {
-            let neighbors =
-                self.search_layer(current, &new_node.vector, self.ef_construction, l as usize);
-            let selected = self.select_neighbors(&new_node.vector, &neighbors);
-
-            self.update_node_layers(node_id, l as usize, selected.clone());
+        for l in (0..=level.min(ep_level)).rev() {
+            let ctx = SearchCtx {
+                label,
+                property,
+                query: vector,
+                ef: meta.ef_construction,
+                level: l,
+                similarity: meta.similarity,
+            };
+            let neighbors = search_layer_txn(txn, current, &ctx)?;
+            let selected = select_neighbors_txn(
+                txn,
+                label,
+                property,
+                vector,
+                &neighbors,
+                meta.m,
+                meta.similarity,
+            )?;
 
             for &neighbor_id in &selected {
-                self.add_bidirectional_link(neighbor_id, node_id, l as usize);
+                add_link_txn(txn, label, property, l, neighbor_id, node_id, meta)?;
+                add_link_txn(txn, label, property, l, node_id, neighbor_id, meta)?;
             }
 
             if let Some(&first) = selected.first() {
@@ -119,180 +128,426 @@ impl HnswIndex {
             }
         }
 
-        if level > self.max_level {
-            self.max_level = level;
-        }
+        let new_meta = VectorIndexMeta {
+            entry_point: Some(new_entry_point),
+            max_level: level.max(meta.max_level),
+            ..meta.clone()
+        };
+        txn.put(
+            Db::VectorIndexes,
+            &meta_key(label, property),
+            &new_meta.serialize(),
+        )?;
 
-        self.nodes.push(new_node);
+        Ok(())
     }
 
-    fn search(&self, query: &[f32], k: usize, ef: usize) -> Vec<(NodeId, f32)> {
-        if self.nodes.is_empty() {
-            return Vec::new();
-        }
-
-        let entry = self.entry_point.unwrap();
-        let Some(entry_node) = self.find_node(entry) else {
-            return Vec::new();
+    pub(crate) fn search(
+        storage: &impl StorageEngine,
+        label: &str,
+        property: &str,
+        query: &[f32],
+        k: usize,
+        meta: &VectorIndexMeta,
+    ) -> Result<Vec<(NodeId, f32)>> {
+        let entry_point = match meta.entry_point {
+            Some(ep) => ep,
+            None => return Ok(Vec::new()),
         };
-        let entry_level = entry_node.layers.len() as u8 - 1;
 
-        let mut current = entry;
-        for l in (0..=entry_level).rev() {
-            let neighbors = self.search_layer(current, query, 1, l as usize);
+        let ep_level = {
+            let lvl_bytes = storage
+                .get(Db::VectorIndexes, &lvl_key(label, property, entry_point))?
+                .ok_or_else(|| {
+                    crate::error::HelixiteError::Storage("missing entry point level".into())
+                })?;
+            lvl_bytes[0]
+        };
+
+        let mut current = entry_point;
+        for l in (0..=ep_level).rev() {
+            let ctx = SearchCtx {
+                label,
+                property,
+                query,
+                ef: 1,
+                level: l,
+                similarity: meta.similarity,
+            };
+            let neighbors = search_layer(storage, current, &ctx)?;
             if let Some(&best) = neighbors.first() {
                 current = best;
             }
         }
 
-        let candidates = self.search_layer(current, query, ef, 0);
-        let mut results: Vec<_> = candidates
-            .into_iter()
-            .filter_map(|id| {
-                self.find_node(id)
-                    .map(|n| (n.node_id, cosine_similarity(&n.vector, query)))
-            })
-            .collect();
+        let ctx = SearchCtx {
+            label,
+            property,
+            query,
+            ef: meta.ef_search,
+            level: 0,
+            similarity: meta.similarity,
+        };
+        let candidates = search_layer(storage, current, &ctx)?;
 
-        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        results.truncate(k);
-        results
-    }
-
-    fn search_layer(&self, entry: NodeId, query: &[f32], ef: usize, level: usize) -> Vec<NodeId> {
-        let mut visited = HashSet::new();
-        let mut candidates = BinaryHeap::new();
-        let mut results = BinaryHeap::new();
-
-        visited.insert(entry);
-        if let Some(node) = self.find_node(entry) {
-            let sim = cosine_similarity(&node.vector, query);
-            let candidate = Candidate {
-                node_id: entry,
-                similarity: sim,
-            };
-            candidates.push(candidate.clone());
-            results.push(candidate);
+        let mut results = Vec::new();
+        for &candidate_id in &candidates {
+            let vec_bytes = storage
+                .get(Db::VectorIndexes, &vec_key(label, property, candidate_id))?
+                .ok_or_else(|| {
+                    crate::error::HelixiteError::Storage("missing vector data".into())
+                })?;
+            let candidate_vec = deserialize_vector(&vec_bytes)?;
+            let score = meta.similarity.compute(&candidate_vec, query)?;
+            results.push((candidate_id, score));
         }
 
-        while let Some(candidate) = candidates.pop() {
-            if let Some(worst) = results.peek()
-                && candidate.similarity < worst.similarity
-            {
-                break;
-            }
-
-            let Some(node) = self.find_node(candidate.node_id) else {
-                continue;
+        results.sort_by(|a, b| {
+            let ord = if meta.similarity.is_higher_better() {
+                b.1.partial_cmp(&a.1)
+            } else {
+                a.1.partial_cmp(&b.1)
             };
-            if level >= node.layers.len() {
-                continue;
-            }
+            ord.unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        results.truncate(k);
+        Ok(results)
+    }
+}
 
-            for &neighbor in &node.layers[level] {
-                if !visited.contains(&neighbor) {
-                    visited.insert(neighbor);
-                    if let Some(n) = self.find_node(neighbor) {
-                        let sim = cosine_similarity(&n.vector, query);
-                        let c = Candidate {
-                            node_id: neighbor,
-                            similarity: sim,
-                        };
-                        candidates.push(c.clone());
-                        results.push(c);
-                        if results.len() > ef {
-                            results.pop();
-                        }
-                    }
+struct SearchCtx<'a> {
+    label: &'a str,
+    property: &'a str,
+    query: &'a [f32],
+    ef: usize,
+    level: u8,
+    similarity: SimilarityKind,
+}
+
+fn search_layer(
+    storage: &impl StorageEngine,
+    entry: NodeId,
+    ctx: &SearchCtx<'_>,
+) -> Result<Vec<NodeId>> {
+    let mut visited = HashSet::new();
+    let mut candidates = BinaryHeap::new();
+    let mut results = BinaryHeap::new();
+
+    visited.insert(entry);
+    let entry_vec = load_vector(storage, ctx.label, ctx.property, entry)?;
+    let score = ctx.similarity.compute(&entry_vec, ctx.query)?;
+    let candidate = Candidate {
+        node_id: entry,
+        score,
+        similarity: ctx.similarity,
+    };
+    candidates.push(candidate.clone());
+    results.push(std::cmp::Reverse(candidate));
+
+    while let Some(candidate) = candidates.pop() {
+        if results.len() > ctx.ef
+            && let Some(std::cmp::Reverse(worst)) = results.peek()
+            && !candidate.is_better_than(worst)
+        {
+            break;
+        }
+
+        let neighbors = load_neighbors(
+            storage,
+            ctx.label,
+            ctx.property,
+            ctx.level,
+            candidate.node_id,
+        )?;
+        for neighbor_id in neighbors {
+            if !visited.contains(&neighbor_id) {
+                visited.insert(neighbor_id);
+                let neighbor_vec = load_vector(storage, ctx.label, ctx.property, neighbor_id)?;
+                let score = ctx.similarity.compute(&neighbor_vec, ctx.query)?;
+                let c = Candidate {
+                    node_id: neighbor_id,
+                    score,
+                    similarity: ctx.similarity,
+                };
+                candidates.push(c.clone());
+                results.push(std::cmp::Reverse(c));
+                if results.len() > ctx.ef {
+                    results.pop();
                 }
             }
         }
-
-        results.into_iter().map(|c| c.node_id).collect()
     }
 
-    fn select_neighbors(&self, query: &[f32], candidates: &[NodeId]) -> Vec<NodeId> {
-        let mut scored: Vec<_> = candidates
-            .iter()
-            .filter_map(|&id| {
-                self.find_node(id)
-                    .map(|n| (id, cosine_similarity(&n.vector, query)))
-            })
-            .collect();
+    let mut out: Vec<_> = results
+        .into_iter()
+        .map(|std::cmp::Reverse(c)| c.node_id)
+        .collect();
+    out.sort();
+    Ok(out)
+}
 
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scored.truncate(self.m);
-        scored.into_iter().map(|(id, _)| id).collect()
-    }
+fn search_layer_txn(
+    txn: &mut dyn crate::storage::StorageTxn,
+    entry: NodeId,
+    ctx: &SearchCtx<'_>,
+) -> Result<Vec<NodeId>> {
+    let mut visited = HashSet::new();
+    let mut candidates = BinaryHeap::new();
+    let mut results = BinaryHeap::new();
 
-    fn update_node_layers(&mut self, node_id: NodeId, level: usize, neighbors: Vec<NodeId>) {
-        if let Some(node) = self.nodes.iter_mut().find(|n| n.node_id == node_id)
-            && level < node.layers.len()
+    visited.insert(entry);
+    let entry_vec = load_vector_txn(txn, ctx.label, ctx.property, entry)?;
+    let score = ctx.similarity.compute(&entry_vec, ctx.query)?;
+    let candidate = Candidate {
+        node_id: entry,
+        score,
+        similarity: ctx.similarity,
+    };
+    candidates.push(candidate.clone());
+    results.push(std::cmp::Reverse(candidate));
+
+    while let Some(candidate) = candidates.pop() {
+        if results.len() > ctx.ef
+            && let Some(std::cmp::Reverse(worst)) = results.peek()
+            && !candidate.is_better_than(worst)
         {
-            node.layers[level] = neighbors;
+            break;
         }
-    }
 
-    fn add_bidirectional_link(&mut self, neighbor_id: NodeId, new_id: NodeId, level: usize) {
-        let Some(idx) = self.nodes.iter().position(|n| n.node_id == neighbor_id) else {
-            return;
-        };
-        if level >= self.nodes[idx].layers.len() {
-            return;
-        }
-        self.nodes[idx].layers[level].push(new_id);
-        if self.nodes[idx].layers[level].len() > self.m {
-            let vector = self.nodes[idx].vector.clone();
-            let current_neighbors = self.nodes[idx].layers[level].clone();
-            let best = self.select_neighbors_by_id(&vector, &current_neighbors);
-            self.nodes[idx].layers[level] = best;
-        }
-    }
-
-    fn select_neighbors_by_id(&self, query: &[f32], candidates: &[NodeId]) -> Vec<NodeId> {
-        let mut scored: Vec<_> = candidates
-            .iter()
-            .filter_map(|&id| {
-                self.find_node(id)
-                    .map(|n| (id, cosine_similarity(&n.vector, query)))
-            })
-            .collect();
-
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        scored.truncate(self.m);
-        scored.into_iter().map(|(id, _)| id).collect()
-    }
-
-    fn find_node(&self, node_id: NodeId) -> Option<&HnswNode> {
-        self.nodes.iter().find(|n| n.node_id == node_id)
-    }
-
-    fn random_level(m: usize) -> u8 {
-        let m_inv = 1.0 / m as f64;
-        let mut level = 0;
-        loop {
-            let r: f64 = rand::random();
-            if r < m_inv {
-                level += 1;
-            } else {
-                break;
+        let neighbors =
+            load_neighbors_txn(txn, ctx.label, ctx.property, ctx.level, candidate.node_id)?;
+        for neighbor_id in neighbors {
+            if !visited.contains(&neighbor_id) {
+                visited.insert(neighbor_id);
+                let neighbor_vec = load_vector_txn(txn, ctx.label, ctx.property, neighbor_id)?;
+                let score = ctx.similarity.compute(&neighbor_vec, ctx.query)?;
+                let c = Candidate {
+                    node_id: neighbor_id,
+                    score,
+                    similarity: ctx.similarity,
+                };
+                candidates.push(c.clone());
+                results.push(std::cmp::Reverse(c));
+                if results.len() > ctx.ef {
+                    results.pop();
+                }
             }
         }
-        level
     }
+
+    let mut out: Vec<_> = results
+        .into_iter()
+        .map(|std::cmp::Reverse(c)| c.node_id)
+        .collect();
+    out.sort();
+    Ok(out)
+}
+
+fn select_neighbors_txn(
+    txn: &mut dyn crate::storage::StorageTxn,
+    label: &str,
+    property: &str,
+    query: &[f32],
+    candidates: &[NodeId],
+    m: usize,
+    similarity: SimilarityKind,
+) -> Result<Vec<NodeId>> {
+    let mut scored = Vec::new();
+    for &id in candidates {
+        let vec = load_vector_txn(txn, label, property, id)?;
+        let score = similarity.compute(&vec, query)?;
+        scored.push((id, score));
+    }
+
+    scored.sort_by(|a, b| {
+        let ord = if similarity.is_higher_better() {
+            b.1.partial_cmp(&a.1)
+        } else {
+            a.1.partial_cmp(&b.1)
+        };
+        ord.unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    scored.truncate(m);
+    Ok(scored.into_iter().map(|(id, _)| id).collect())
+}
+
+fn add_link_txn(
+    txn: &mut dyn crate::storage::StorageTxn,
+    label: &str,
+    property: &str,
+    level: u8,
+    from: NodeId,
+    to: NodeId,
+    meta: &VectorIndexMeta,
+) -> Result<()> {
+    let key = lnk_key(label, property, level, from, to);
+    txn.put(Db::VectorIndexes, &key, &[])?;
+
+    let prefix = lnk_prefix(label, property, level, from);
+    let entries = txn.scan_prefix(Db::VectorIndexes, &prefix)?;
+
+    if entries.len() > meta.m {
+        prune_links_txn(txn, label, property, from, &entries, meta)?;
+    }
+
+    Ok(())
+}
+
+fn prune_links_txn(
+    txn: &mut dyn crate::storage::StorageTxn,
+    label: &str,
+    property: &str,
+    node_id: NodeId,
+    entries: &[(Vec<u8>, Vec<u8>)],
+    meta: &VectorIndexMeta,
+) -> Result<()> {
+    let mut neighbors = Vec::new();
+    for (key, _) in entries {
+        if let Some((_, _, neighbor_id)) = decode_link_from_lnk_key(key) {
+            neighbors.push(neighbor_id);
+        }
+    }
+
+    if neighbors.len() <= meta.m {
+        return Ok(());
+    }
+
+    let node_vec = load_vector_txn(txn, label, property, node_id)?;
+    let mut scored = Vec::new();
+    for neighbor_id in neighbors {
+        let neighbor_vec = load_vector_txn(txn, label, property, neighbor_id)?;
+        let score = meta.similarity.compute(&node_vec, &neighbor_vec)?;
+        scored.push((neighbor_id, score));
+    }
+
+    scored.sort_by(|a, b| {
+        let ord = if meta.similarity.is_higher_better() {
+            b.1.partial_cmp(&a.1)
+        } else {
+            a.1.partial_cmp(&b.1)
+        };
+        ord.unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    scored.truncate(meta.m);
+
+    let keep: HashSet<NodeId> = scored.into_iter().map(|(id, _)| id).collect();
+
+    for (key, _) in entries {
+        if let Some((_, _, neighbor_id)) = decode_link_from_lnk_key(key)
+            && !keep.contains(&neighbor_id)
+        {
+            txn.delete(Db::VectorIndexes, key)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn load_neighbors(
+    storage: &impl StorageEngine,
+    label: &str,
+    property: &str,
+    level: u8,
+    node_id: NodeId,
+) -> Result<Vec<NodeId>> {
+    let prefix = lnk_prefix(label, property, level, node_id);
+    let entries = storage.scan_prefix(Db::VectorIndexes, &prefix)?;
+
+    let mut neighbors = Vec::new();
+    for (key, _) in entries {
+        if let Some((_, _, neighbor_id)) = decode_link_from_lnk_key(&key) {
+            neighbors.push(neighbor_id);
+        }
+    }
+
+    Ok(neighbors)
+}
+
+fn load_neighbors_txn(
+    txn: &mut dyn crate::storage::StorageTxn,
+    label: &str,
+    property: &str,
+    level: u8,
+    node_id: NodeId,
+) -> Result<Vec<NodeId>> {
+    let prefix = lnk_prefix(label, property, level, node_id);
+    let entries = txn.scan_prefix(Db::VectorIndexes, &prefix)?;
+
+    let mut neighbors = Vec::new();
+    for (key, _) in entries {
+        if let Some((_, _, neighbor_id)) = decode_link_from_lnk_key(&key) {
+            neighbors.push(neighbor_id);
+        }
+    }
+
+    Ok(neighbors)
+}
+
+fn load_vector(
+    storage: &impl StorageEngine,
+    label: &str,
+    property: &str,
+    node_id: NodeId,
+) -> Result<Vec<f32>> {
+    let bytes = storage
+        .get(Db::VectorIndexes, &vec_key(label, property, node_id))?
+        .ok_or_else(|| crate::error::HelixiteError::Storage("vector not found".into()))?;
+    deserialize_vector(&bytes)
+}
+
+fn load_vector_txn(
+    txn: &mut dyn crate::storage::StorageTxn,
+    label: &str,
+    property: &str,
+    node_id: NodeId,
+) -> Result<Vec<f32>> {
+    let bytes = txn
+        .get(Db::VectorIndexes, &vec_key(label, property, node_id))?
+        .ok_or_else(|| crate::error::HelixiteError::Storage("vector not found".into()))?;
+    deserialize_vector(&bytes)
+}
+
+fn random_level(node_id: NodeId, m: usize) -> u8 {
+    let m_inv = 1.0 / m as f64;
+    let mut level = 0;
+    let mut seed = node_id.wrapping_mul(6364136223846793005).wrapping_add(1);
+    loop {
+        let r = (seed as f64) / (u64::MAX as f64);
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        if r < m_inv {
+            level += 1;
+        } else {
+            break;
+        }
+    }
+    level
 }
 
 #[derive(Debug, Clone)]
 struct Candidate {
     node_id: NodeId,
-    similarity: f32,
+    score: f32,
+    similarity: SimilarityKind,
+}
+
+impl Candidate {
+    fn is_better_than(&self, other: &Self) -> bool {
+        if self.similarity.is_higher_better() {
+            self.score > other.score
+        } else {
+            self.score < other.score
+        }
+    }
 }
 
 impl Eq for Candidate {}
 
 impl PartialEq for Candidate {
     fn eq(&self, other: &Self) -> bool {
-        self.similarity.to_bits() == other.similarity.to_bits() && self.node_id == other.node_id
+        self.score.to_bits() == other.score.to_bits() && self.node_id == other.node_id
     }
 }
 
@@ -304,25 +559,12 @@ impl PartialOrd for Candidate {
 
 impl Ord for Candidate {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.similarity
-            .partial_cmp(&other.similarity)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .reverse()
+        let ord = if self.similarity.is_higher_better() {
+            self.score.partial_cmp(&other.score)
+        } else {
+            other.score.partial_cmp(&self.score)
+        };
+        ord.unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| self.node_id.cmp(&other.node_id))
     }
-}
-
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    let mut dot = 0.0;
-    let mut norm_a = 0.0;
-    let mut norm_b = 0.0;
-
-    for (x, y) in a.iter().zip(b.iter()) {
-        dot += x * y;
-        norm_a += x * x;
-        norm_b += y * y;
-    }
-
-    let denom = norm_a.sqrt() * norm_b.sqrt();
-    if denom == 0.0 { 0.0 } else { dot / denom }
 }

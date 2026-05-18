@@ -7,25 +7,25 @@ use crate::value::Value;
 
 use crate::index::labels::LabelIndex;
 use crate::index::properties::PropertyIndex;
-use crate::index::vector::{VectorIndex, VectorIndexKind};
+use crate::index::vector::VectorIndex;
 
 #[derive(Debug, Clone)]
 pub(crate) enum PropertyFilter {
     Eq(String, Value),
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct VectorFilter {
-    pub(crate) property: String,
-    pub(crate) query: Vec<f32>,
-    pub(crate) k: usize,
-}
-
 pub struct NodeQuery<'a, S: StorageEngine> {
     storage: &'a S,
     label: Option<String>,
     filters: Vec<PropertyFilter>,
-    vector_filter: Option<VectorFilter>,
+    vector_search: Option<VectorSearch>,
+}
+
+#[derive(Debug, Clone)]
+struct VectorSearch {
+    property: String,
+    query: Vec<f32>,
+    k: usize,
 }
 
 impl<'a, S: StorageEngine> NodeQuery<'a, S> {
@@ -34,7 +34,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
             storage,
             label: None,
             filters: Vec::new(),
-            vector_filter: None,
+            vector_search: None,
         }
     }
 
@@ -50,7 +50,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     }
 
     pub fn nearest(mut self, property: impl Into<String>, query: Vec<f32>, k: usize) -> Self {
-        self.vector_filter = Some(VectorFilter {
+        self.vector_search = Some(VectorSearch {
             property: property.into(),
             query,
             k,
@@ -59,50 +59,51 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     }
 
     pub fn collect(self) -> Result<Vec<Node>> {
-        let matching_ids = self.resolve_matching_ids()?;
-        self.load_nodes(&matching_ids)
+        let ordered_ids = self.resolve_ordered_ids()?;
+        self.load_nodes(&ordered_ids)
     }
 
     pub fn ids(self) -> Result<Vec<NodeId>> {
-        self.resolve_matching_ids()
+        self.resolve_ordered_ids()
     }
 
     pub fn count(self) -> Result<usize> {
-        let matching_ids = self.resolve_matching_ids()?;
+        let matching_ids = self.resolve_ordered_ids()?;
         Ok(matching_ids.len())
     }
 
-    fn resolve_matching_ids(&self) -> Result<Vec<NodeId>> {
-        if let Some(ref vf) = self.vector_filter {
+    fn resolve_ordered_ids(&self) -> Result<Vec<NodeId>> {
+        if let Some(ref vs) = self.vector_search {
             let label = self
                 .label
                 .as_ref()
                 .ok_or_else(|| HelixiteError::Storage("vector search requires a label".into()))?;
-            let results = VectorIndex::search(
+
+            let meta = VectorIndex::load_meta(self.storage, label, &vs.property)?;
+            let search_k = if self.filters.is_empty() {
+                vs.k
+            } else {
+                vs.k * 10
+            };
+            let mut results = VectorIndex::search(
                 self.storage,
-                VectorIndexKind::Exact,
                 label,
-                &vf.property,
-                &vf.query,
-                vf.k,
+                &vs.property,
+                &vs.query,
+                search_k,
+                &meta,
             )?;
-            let mut candidate_ids: Vec<NodeId> = results.into_iter().map(|(id, _)| id).collect();
 
             if !self.filters.is_empty() {
-                let mut id_sets: Vec<Vec<NodeId>> = Vec::with_capacity(self.filters.len());
-                for filter in &self.filters {
-                    let PropertyFilter::Eq(property, value) = filter;
-                    id_sets.push(self.scan_ids_by_property(property, value)?);
-                }
-
-                let mut matching_ids = self.intersect_id_sets(id_sets)?;
-                candidate_ids.sort_unstable();
-                matching_ids.retain(|id| candidate_ids.binary_search(id).is_ok());
-                return Ok(matching_ids);
+                let filter_ids = self.resolve_filter_ids()?;
+                let filter_set: std::collections::HashSet<NodeId> =
+                    filter_ids.into_iter().collect();
+                results.retain(|(id, _)| filter_set.contains(id));
             }
 
-            candidate_ids.sort_unstable();
-            return Ok(candidate_ids);
+            results.truncate(vs.k);
+
+            return Ok(results.into_iter().map(|(id, _)| id).collect());
         }
 
         if self.filters.is_empty() {
@@ -112,13 +113,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
             };
         }
 
-        let mut id_sets: Vec<Vec<NodeId>> = Vec::with_capacity(self.filters.len());
-        for filter in &self.filters {
-            let PropertyFilter::Eq(property, value) = filter;
-            id_sets.push(self.scan_ids_by_property(property, value)?);
-        }
-
-        let mut matching_ids = self.intersect_id_sets(id_sets)?;
+        let mut matching_ids = self.resolve_filter_ids()?;
 
         if let Some(ref label) = self.label {
             let label_ids = self.scan_ids_by_label(label)?;
@@ -126,6 +121,15 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
         }
 
         Ok(matching_ids)
+    }
+
+    fn resolve_filter_ids(&self) -> Result<Vec<NodeId>> {
+        let mut id_sets: Vec<Vec<NodeId>> = Vec::with_capacity(self.filters.len());
+        for filter in &self.filters {
+            let PropertyFilter::Eq(property, value) = filter;
+            id_sets.push(self.scan_ids_by_property(property, value)?);
+        }
+        self.intersect_id_sets(id_sets)
     }
 
     fn scan_ids_by_property(&self, property: &str, value: &Value) -> Result<Vec<NodeId>> {

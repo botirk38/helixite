@@ -1,66 +1,180 @@
-mod exact;
 mod hnsw;
+mod keys;
+mod similarity;
 
+use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::storage::StorageEngine;
+use crate::storage::engine::Db;
 
-use super::codec::KeyBuilder;
+pub use similarity::SimilarityFn;
+pub use similarity::SimilarityKind;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VectorIndexKind {
-    Exact,
-    Hnsw,
+pub(crate) use hnsw::Hnsw;
+pub(crate) use keys::VectorIndexMeta;
+
+#[derive(Debug, Clone)]
+pub struct HnswConfig {
+    pub(crate) m: usize,
+    pub(crate) ef_construction: usize,
+    pub(crate) ef_search: usize,
+    pub(crate) similarity: SimilarityKind,
 }
 
-pub struct VectorIndex;
+impl Default for HnswConfig {
+    fn default() -> Self {
+        Self {
+            m: 16,
+            ef_construction: 200,
+            ef_search: 50,
+            similarity: SimilarityKind::Cosine,
+        }
+    }
+}
+
+impl HnswConfig {
+    pub fn cosine() -> Self {
+        Self {
+            similarity: SimilarityKind::Cosine,
+            ..Default::default()
+        }
+    }
+
+    pub fn dot_product() -> Self {
+        Self {
+            similarity: SimilarityKind::DotProduct,
+            ..Default::default()
+        }
+    }
+
+    pub fn euclidean() -> Self {
+        Self {
+            similarity: SimilarityKind::Euclidean,
+            ..Default::default()
+        }
+    }
+
+    pub fn custom(f: SimilarityFn) -> Self {
+        Self {
+            similarity: SimilarityKind::Custom(f),
+            ..Default::default()
+        }
+    }
+
+    pub fn m(mut self, m: usize) -> Self {
+        self.m = m;
+        self
+    }
+
+    pub fn ef_construction(mut self, ef: usize) -> Self {
+        self.ef_construction = ef;
+        self
+    }
+
+    pub fn ef_search(mut self, ef: usize) -> Self {
+        self.ef_search = ef;
+        self
+    }
+
+    pub fn similarity(mut self, s: SimilarityKind) -> Self {
+        self.similarity = s;
+        self
+    }
+}
+
+pub(crate) struct VectorIndex;
 
 impl VectorIndex {
-    pub fn key(kind: VectorIndexKind, label: &str, property: &str, node_id: NodeId) -> Vec<u8> {
-        KeyBuilder::new()
-            .u8(kind as u8)
-            .str(label)
-            .str(property)
-            .u64(node_id)
-            .finish()
-    }
-
-    pub fn prefix(kind: VectorIndexKind, label: &str, property: &str) -> Vec<u8> {
-        KeyBuilder::new()
-            .u8(kind as u8)
-            .str(label)
-            .str(property)
-            .finish()
-    }
-
-    pub fn decode_node_id(key: &[u8]) -> Option<NodeId> {
-        let mut reader = super::codec::KeyReader::new(key);
-        reader.u8()?;
-        reader.str()?;
-        reader.str()?;
-        let id = reader.u64()?;
-        reader.finish()?;
-        Some(id)
-    }
-
-    pub fn serialize_vector(vector: &[f32]) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(vector.len() * 4);
-        for &v in vector {
-            bytes.extend_from_slice(&v.to_le_bytes());
-        }
-        bytes
-    }
-
-    pub fn search(
+    pub(crate) fn create(
         storage: &impl StorageEngine,
-        kind: VectorIndexKind,
+        label: &str,
+        property: &str,
+        dimension: usize,
+        config: HnswConfig,
+    ) -> Result<()> {
+        if matches!(config.similarity, SimilarityKind::Custom(_)) {
+            return Err(HelixiteError::Codec(
+                "custom similarity cannot be used with persisted indexes".into(),
+            ));
+        }
+        let meta = VectorIndexMeta {
+            dimension,
+            m: config.m,
+            ef_construction: config.ef_construction,
+            ef_search: config.ef_search,
+            similarity: config.similarity,
+            entry_point: None,
+            max_level: 0,
+        };
+        storage.write(|txn| {
+            txn.put(
+                Db::VectorIndexes,
+                &keys::meta_key(label, property),
+                &meta.serialize(),
+            )?;
+            Ok(())
+        })
+    }
+
+    pub(crate) fn load_meta(
+        storage: &impl StorageEngine,
+        label: &str,
+        property: &str,
+    ) -> Result<VectorIndexMeta> {
+        let bytes = storage
+            .get(Db::VectorIndexes, &keys::meta_key(label, property))?
+            .ok_or_else(|| HelixiteError::VectorIndexNotFound {
+                label: label.into(),
+                property: property.into(),
+            })?;
+        VectorIndexMeta::deserialize(&bytes)
+    }
+
+    pub(crate) fn load_meta_from_txn(
+        txn: &mut dyn crate::storage::StorageTxn,
+        label: &str,
+        property: &str,
+    ) -> Result<VectorIndexMeta> {
+        let bytes = txn
+            .get(Db::VectorIndexes, &keys::meta_key(label, property))?
+            .ok_or_else(|| HelixiteError::VectorIndexNotFound {
+                label: label.into(),
+                property: property.into(),
+            })?;
+        VectorIndexMeta::deserialize(&bytes)
+    }
+
+    pub(crate) fn insert_into_txn(
+        txn: &mut dyn crate::storage::StorageTxn,
+        label: &str,
+        property: &str,
+        node_id: NodeId,
+        vector: &[f32],
+        meta: &VectorIndexMeta,
+    ) -> Result<()> {
+        if vector.len() != meta.dimension {
+            return Err(HelixiteError::InvalidVectorDim {
+                expected: meta.dimension,
+                actual: vector.len(),
+            });
+        }
+        Hnsw::insert_into_txn(txn, label, property, node_id, vector, meta)
+    }
+
+    pub(crate) fn search(
+        storage: &impl StorageEngine,
         label: &str,
         property: &str,
         query: &[f32],
         k: usize,
-    ) -> crate::error::Result<Vec<(NodeId, f32)>> {
-        match kind {
-            VectorIndexKind::Exact => exact::search(storage, label, property, query, k),
-            VectorIndexKind::Hnsw => hnsw::search(storage, label, property, query, k),
+        meta: &VectorIndexMeta,
+    ) -> Result<Vec<(NodeId, f32)>> {
+        if query.len() != meta.dimension {
+            return Err(HelixiteError::InvalidVectorDim {
+                expected: meta.dimension,
+                actual: query.len(),
+            });
         }
+        Hnsw::search(storage, label, property, query, k, meta)
     }
 }

@@ -1,4 +1,4 @@
-pub struct KeyBuilder {
+pub(crate) struct KeyBuilder {
     bytes: Vec<u8>,
 }
 
@@ -9,52 +9,52 @@ impl Default for KeyBuilder {
 }
 
 impl KeyBuilder {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             bytes: Vec::with_capacity(32),
         }
     }
 
-    pub fn u8(mut self, value: u8) -> Self {
+    pub(crate) fn u8(mut self, value: u8) -> Self {
         self.bytes.push(value);
         self
     }
 
-    pub fn str(mut self, value: &str) -> Self {
+    pub(crate) fn str(mut self, value: &str) -> Self {
         let len = u32::try_from(value.len()).expect("key string field exceeds u32::MAX");
         self.bytes.extend(len.to_be_bytes());
         self.bytes.extend(value.as_bytes());
         self
     }
 
-    pub fn bytes(mut self, value: &[u8]) -> Self {
+    pub(crate) fn bytes(mut self, value: &[u8]) -> Self {
         let len = u32::try_from(value.len()).expect("key bytes field exceeds u32::MAX");
         self.bytes.extend(len.to_be_bytes());
         self.bytes.extend(value);
         self
     }
 
-    pub fn u64(mut self, value: u64) -> Self {
+    pub(crate) fn u64(mut self, value: u64) -> Self {
         self.bytes.extend(value.to_be_bytes());
         self
     }
 
-    pub fn finish(self) -> Vec<u8> {
+    pub(crate) fn finish(self) -> Vec<u8> {
         self.bytes
     }
 }
 
-pub struct KeyReader<'a> {
+pub(crate) struct KeyReader<'a> {
     bytes: &'a [u8],
     cursor: usize,
 }
 
 impl<'a> KeyReader<'a> {
-    pub fn new(bytes: &'a [u8]) -> Self {
+    pub(crate) fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, cursor: 0 }
     }
 
-    pub fn u8(&mut self) -> Option<u8> {
+    pub(crate) fn u8(&mut self) -> Option<u8> {
         if self.cursor + 1 > self.bytes.len() {
             return None;
         }
@@ -63,7 +63,7 @@ impl<'a> KeyReader<'a> {
         Some(val)
     }
 
-    pub fn str(&mut self) -> Option<&'a [u8]> {
+    pub(crate) fn str(&mut self) -> Option<&'a [u8]> {
         let len = usize::try_from(self.u32()?).ok()?;
         if self.cursor + len > self.bytes.len() {
             return None;
@@ -73,7 +73,7 @@ impl<'a> KeyReader<'a> {
         Some(&self.bytes[start..self.cursor])
     }
 
-    pub fn bytes(&mut self) -> Option<&'a [u8]> {
+    pub(crate) fn bytes(&mut self) -> Option<&'a [u8]> {
         let len = usize::try_from(self.u32()?).ok()?;
         if self.cursor + len > self.bytes.len() {
             return None;
@@ -83,7 +83,7 @@ impl<'a> KeyReader<'a> {
         Some(&self.bytes[start..self.cursor])
     }
 
-    pub fn u64(&mut self) -> Option<u64> {
+    pub(crate) fn u64(&mut self) -> Option<u64> {
         if self.cursor + 8 > self.bytes.len() {
             return None;
         }
@@ -101,7 +101,7 @@ impl<'a> KeyReader<'a> {
         Some(u32::from_be_bytes(bytes))
     }
 
-    pub fn finish(self) -> Option<()> {
+    pub(crate) fn finish(self) -> Option<()> {
         if self.cursor == self.bytes.len() {
             Some(())
         } else {
