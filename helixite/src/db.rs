@@ -5,18 +5,18 @@ use crate::edge::Edge;
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
+use crate::query::{NodeQuery, NodeRefQuery};
 use crate::storage::StorageEngine;
 use crate::storage::engine::Db;
 use crate::storage::lmdb::LmdbStorage;
 use crate::value::Value;
 
+use crate::index::edges::EdgeIndex;
+use crate::index::labels::LabelIndex;
+use crate::index::properties::PropertyIndex;
+
 const METADATA_NEXT_NODE_ID: &[u8] = b"next_node_id";
 const METADATA_NEXT_EDGE_ID: &[u8] = b"next_edge_id";
-
-pub enum Direction {
-    Out,
-    In,
-}
 
 pub struct Helixite<S: StorageEngine = LmdbStorage> {
     path: PathBuf,
@@ -85,28 +85,19 @@ impl<S: StorageEngine> Helixite<S> {
             let node = Node {
                 id: next_id,
                 label: label.clone(),
-                properties,
+                properties: properties.clone(),
             };
 
             let bytes =
                 bincode::serialize(&node).map_err(|e| HelixiteError::Codec(e.to_string()))?;
             txn.put(Db::Nodes, &next_id.to_be_bytes(), &bytes)?;
 
-            let mut label_key = label.as_bytes().to_vec();
-            label_key.extend(b"/");
-            label_key.extend(next_id.to_be_bytes());
-            txn.put(Db::Labels, &label_key, &[])?;
+            let label_k = LabelIndex::key(&label, next_id);
+            txn.put(Db::Labels, &label_k, &[])?;
 
-            for (prop_name, prop_value) in &node.properties {
-                if let Some(value_bytes) = prop_value.to_index_key() {
-                    let mut prop_key = label.as_bytes().to_vec();
-                    prop_key.extend(b"/");
-                    prop_key.extend(prop_name.as_bytes());
-                    prop_key.extend(b"/");
-                    prop_key.extend(&value_bytes);
-                    prop_key.extend(b"/");
-                    prop_key.extend(next_id.to_be_bytes());
-                    txn.put(Db::Properties, &prop_key, &[])?;
+            for (prop_name, prop_value) in &properties {
+                if let Some(key) = PropertyIndex::key(prop_name, prop_value, next_id) {
+                    txn.put(Db::Properties, &key, &[])?;
                 }
             }
 
@@ -129,14 +120,6 @@ impl<S: StorageEngine> Helixite<S> {
         let node = bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))?;
 
         Ok(node)
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    pub fn storage(&self) -> &S {
-        &self.storage
     }
 
     pub fn add_edge(
@@ -165,17 +148,11 @@ impl<S: StorageEngine> Helixite<S> {
                 bincode::serialize(&edge).map_err(|e| HelixiteError::Codec(e.to_string()))?;
             txn.put(Db::Edges, &next_id.to_be_bytes(), &bytes)?;
 
-            let mut out_key = from.to_be_bytes().to_vec();
-            out_key.extend(label.as_bytes());
-            out_key.extend(b":");
-            out_key.extend(next_id.to_be_bytes());
-            txn.put(Db::OutEdges, &out_key, &next_id.to_be_bytes())?;
+            let out_k = EdgeIndex::out_key(from, &label, next_id);
+            txn.put(Db::OutEdges, &out_k, &next_id.to_be_bytes())?;
 
-            let mut in_key = to.to_be_bytes().to_vec();
-            in_key.extend(label.as_bytes());
-            in_key.extend(b":");
-            in_key.extend(next_id.to_be_bytes());
-            txn.put(Db::InEdges, &in_key, &next_id.to_be_bytes())?;
+            let in_k = EdgeIndex::in_key(to, &label, next_id);
+            txn.put(Db::InEdges, &in_k, &next_id.to_be_bytes())?;
 
             txn.put(
                 Db::Metadata,
@@ -198,74 +175,20 @@ impl<S: StorageEngine> Helixite<S> {
         Ok(edge)
     }
 
-    pub fn neighbors(
-        &self,
-        node_id: NodeId,
-        direction: Direction,
-        label: Option<&str>,
-    ) -> Result<Vec<Edge>> {
-        let db = match direction {
-            Direction::Out => Db::OutEdges,
-            Direction::In => Db::InEdges,
-        };
-
-        let mut prefix = node_id.to_be_bytes().to_vec();
-        if let Some(l) = label {
-            prefix.extend(l.as_bytes());
-        }
-
-        let entries = self.storage.scan_prefix(db, &prefix)?;
-
-        let mut edges = Vec::new();
-        for (_, value) in entries {
-            let edge_id = decode_u64(&value, "edge_id")?;
-            let edge = self.get_edge(edge_id)?;
-            edges.push(edge);
-        }
-
-        Ok(edges)
+    pub fn nodes(&self) -> NodeQuery<'_, S> {
+        NodeQuery::new(&self.storage)
     }
 
-    pub fn find_nodes_by_label(&self, label: &str) -> Result<Vec<Node>> {
-        let entries = self.storage.scan_prefix(Db::Labels, label.as_bytes())?;
-
-        let mut nodes = Vec::new();
-        for (key, _) in entries {
-            if let Some(node_id) = extract_node_id_from_label_key(&key) {
-                let node = self.get_node(node_id)?;
-                nodes.push(node);
-            }
-        }
-
-        Ok(nodes)
+    pub fn node(&self, id: NodeId) -> NodeRefQuery<'_, S> {
+        NodeRefQuery::new(&self.storage, id)
     }
 
-    pub fn find_nodes_by_property(
-        &self,
-        label: &str,
-        property_name: &str,
-        value: &Value,
-    ) -> Result<Vec<Node>> {
-        let mut prefix = label.as_bytes().to_vec();
-        prefix.extend(b"/");
-        prefix.extend(property_name.as_bytes());
-        prefix.extend(b"/");
-        if let Some(value_bytes) = value.to_index_key() {
-            prefix.extend(&value_bytes);
-        }
-        prefix.extend(b"/");
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 
-        let entries = self.storage.scan_prefix(Db::Properties, &prefix)?;
-
-        let mut nodes = Vec::new();
-        for (key, _) in entries {
-            if let Some(node_id) = extract_node_id_from_property_key(&key) {
-                let node = self.get_node(node_id)?;
-                nodes.push(node);
-            }
-        }
-
-        Ok(nodes)
+    pub fn storage(&self) -> &S {
+        &self.storage
     }
 }
 
@@ -274,26 +197,4 @@ fn decode_u64(bytes: &[u8], name: &str) -> Result<u64> {
         .try_into()
         .map_err(|_| HelixiteError::Storage(format!("invalid {name} metadata value")))?;
     Ok(u64::from_be_bytes(bytes))
-}
-
-fn extract_node_id_from_label_key(key: &[u8]) -> Option<NodeId> {
-    if let Some(pos) = key.iter().rposition(|&b| b == b'/') {
-        let id_bytes = &key[pos + 1..];
-        if id_bytes.len() == 8 {
-            let bytes: [u8; 8] = id_bytes.try_into().ok()?;
-            return Some(u64::from_be_bytes(bytes));
-        }
-    }
-    None
-}
-
-fn extract_node_id_from_property_key(key: &[u8]) -> Option<NodeId> {
-    if let Some(pos) = key.iter().rposition(|&b| b == b'/') {
-        let id_bytes = &key[pos + 1..];
-        if id_bytes.len() == 8 {
-            let bytes: [u8; 8] = id_bytes.try_into().ok()?;
-            return Some(u64::from_be_bytes(bytes));
-        }
-    }
-    None
 }
