@@ -14,6 +14,7 @@ use crate::value::Value;
 use crate::index::edges::EdgeIndex;
 use crate::index::labels::LabelIndex;
 use crate::index::properties::PropertyIndex;
+use crate::index::vector::{HnswConfig, VectorIndex};
 
 const METADATA_NEXT_NODE_ID: &[u8] = b"next_node_id";
 const METADATA_NEXT_EDGE_ID: &[u8] = b"next_edge_id";
@@ -73,19 +74,31 @@ impl<S: StorageEngine> Helixite<S> {
         properties: impl IntoIterator<Item = (String, Value)>,
     ) -> Result<NodeId> {
         let label = label.into();
-        self.storage.write(|txn| {
+        let properties: std::collections::BTreeMap<String, Value> =
+            properties.into_iter().collect();
+
+        for (prop_name, prop_value) in &properties {
+            if let Value::Vector(vector) = prop_value
+                && let Ok(meta) = VectorIndex::load_meta(&self.storage, &label, prop_name)
+                && vector.len() != meta.dimension
+            {
+                return Err(HelixiteError::InvalidVectorDim {
+                    expected: meta.dimension,
+                    actual: vector.len(),
+                });
+            }
+        }
+
+        let node_id = self.storage.write(|txn| {
             let next_id = match txn.get(Db::Metadata, METADATA_NEXT_NODE_ID)? {
                 Some(bytes) => decode_u64(&bytes, "next_node_id")?,
                 None => 1,
             };
 
-            let properties: std::collections::BTreeMap<String, Value> =
-                properties.into_iter().collect();
-
             let node = Node {
                 id: next_id,
                 label: label.clone(),
-                properties,
+                properties: properties.clone(),
             };
 
             let bytes =
@@ -99,6 +112,11 @@ impl<S: StorageEngine> Helixite<S> {
                 if let Some(key) = PropertyIndex::key(prop_name, prop_value, next_id) {
                     txn.put(Db::Properties, &key, &[])?;
                 }
+                if let Value::Vector(vector) = prop_value
+                    && let Ok(meta) = VectorIndex::load_meta_from_txn(txn, &label, prop_name)
+                {
+                    VectorIndex::insert_into_txn(txn, &label, prop_name, next_id, vector, &meta)?;
+                }
             }
 
             txn.put(
@@ -108,7 +126,9 @@ impl<S: StorageEngine> Helixite<S> {
             )?;
 
             Ok(next_id)
-        })
+        })?;
+
+        Ok(node_id)
     }
 
     pub fn get_node(&self, id: NodeId) -> Result<Node> {
@@ -189,6 +209,16 @@ impl<S: StorageEngine> Helixite<S> {
 
     pub fn storage(&self) -> &S {
         &self.storage
+    }
+
+    pub fn create_vector_index(
+        &self,
+        label: &str,
+        property: &str,
+        dimension: usize,
+        config: HnswConfig,
+    ) -> Result<()> {
+        VectorIndex::create(&self.storage, label, property, dimension, config)
     }
 }
 

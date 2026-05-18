@@ -2,11 +2,22 @@ pub(crate) struct KeyBuilder {
     bytes: Vec<u8>,
 }
 
+impl Default for KeyBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyBuilder {
     pub(crate) fn new() -> Self {
         Self {
             bytes: Vec::with_capacity(32),
         }
+    }
+
+    pub(crate) fn u8(mut self, value: u8) -> Self {
+        self.bytes.push(value);
+        self
     }
 
     pub(crate) fn str(mut self, value: &str) -> Self {
@@ -41,6 +52,15 @@ pub(crate) struct KeyReader<'a> {
 impl<'a> KeyReader<'a> {
     pub(crate) fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, cursor: 0 }
+    }
+
+    pub(crate) fn u8(&mut self) -> Option<u8> {
+        if self.cursor + 1 > self.bytes.len() {
+            return None;
+        }
+        let val = self.bytes[self.cursor];
+        self.cursor += 1;
+        Some(val)
     }
 
     pub(crate) fn str(&mut self) -> Option<&'a [u8]> {
