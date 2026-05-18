@@ -6,7 +6,7 @@ fn test_add_node_returns_id() {
     let dir = tempdir().unwrap();
     let db = Helixite::open(dir.path(), None).unwrap();
 
-    let id = db.add_node("User".to_string(), Vec::new()).unwrap();
+    let id = db.add_node("User", Vec::new()).unwrap();
     assert_eq!(id, 1);
 }
 
@@ -17,7 +17,7 @@ fn test_get_node() {
 
     let id = db
         .add_node(
-            "User".to_string(),
+            "User",
             vec![
                 ("name".to_string(), Value::String("Alice".to_string())),
                 ("age".to_string(), Value::Int(30)),
@@ -52,7 +52,7 @@ fn test_node_persists_after_reopen() {
     {
         let db = Helixite::open(path, None).unwrap();
         db.add_node(
-            "Chunk".to_string(),
+            "Chunk",
             vec![("text".to_string(), Value::String("hello".to_string()))],
         )
         .unwrap();
@@ -72,9 +72,9 @@ fn test_multiple_nodes_get_incrementing_ids() {
     let dir = tempdir().unwrap();
     let db = Helixite::open(dir.path(), None).unwrap();
 
-    let id1 = db.add_node("A".to_string(), Vec::new()).unwrap();
-    let id2 = db.add_node("B".to_string(), Vec::new()).unwrap();
-    let id3 = db.add_node("C".to_string(), Vec::new()).unwrap();
+    let id1 = db.add_node("A", Vec::new()).unwrap();
+    let id2 = db.add_node("B", Vec::new()).unwrap();
+    let id3 = db.add_node("C", Vec::new()).unwrap();
 
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);

@@ -1,5 +1,6 @@
 pub mod engine;
-pub mod env;
 pub mod lmdb;
 
-pub use engine::StorageEngine;
+mod env;
+
+pub use engine::{Db, StorageEngine, StorageTxn};

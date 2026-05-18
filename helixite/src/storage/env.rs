@@ -1,4 +1,4 @@
-use heed::{EnvOpenOptions, Env};
+use heed::{Env, EnvOpenOptions};
 use std::path::Path;
 
 use crate::config::Config;

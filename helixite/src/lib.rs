@@ -1,15 +1,14 @@
+pub mod config;
 pub mod db;
 pub mod error;
-pub mod config;
 pub mod id;
-pub mod value;
 pub mod node;
+pub mod storage;
+pub mod value;
 
-mod storage;
-
-pub use db::Helixite;
-pub use error::{HelixiteError, Result};
 pub use config::Config;
-pub use id::{NodeId, EdgeId};
-pub use value::Value;
+pub use db::{Helixite, HelixiteBuilder, HelixiteStorageBuilder};
+pub use error::{HelixiteError, Result};
+pub use id::{EdgeId, NodeId};
 pub use node::Node;
+pub use value::Value;
