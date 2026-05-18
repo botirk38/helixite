@@ -17,30 +17,20 @@ pub struct Helixite<S: StorageEngine = LmdbStorage> {
 }
 
 pub struct HelixiteBuilder {
-    path: PathBuf,
     config: Config,
 }
 
-pub struct HelixiteStorageBuilder<S: StorageEngine> {
-    path: PathBuf,
-    storage: S,
-}
-
-impl Helixite {
-    pub fn open(path: impl AsRef<Path>, config: Option<Config>) -> Result<Self> {
-        let mut builder = Self::builder(path);
-        if let Some(config) = config {
-            builder = builder.config(config);
-        }
-        builder.open()
-    }
-
-    pub fn builder(path: impl AsRef<Path>) -> HelixiteBuilder {
-        HelixiteBuilder {
-            path: path.as_ref().to_path_buf(),
+#[expect(clippy::derivable_impls)]
+impl Default for HelixiteBuilder {
+    fn default() -> Self {
+        Self {
             config: Config::default(),
         }
     }
+}
+
+pub struct HelixiteStorageBuilder<S: StorageEngine> {
+    storage: S,
 }
 
 impl HelixiteBuilder {
@@ -50,25 +40,23 @@ impl HelixiteBuilder {
     }
 
     pub fn storage<S: StorageEngine>(self, storage: S) -> HelixiteStorageBuilder<S> {
-        HelixiteStorageBuilder {
-            path: self.path,
-            storage,
-        }
+        HelixiteStorageBuilder { storage }
     }
 
-    pub fn open(self) -> Result<Helixite> {
-        let storage = LmdbStorage::open(&self.path, &self.config)?;
+    pub fn open(self, path: impl AsRef<Path>) -> Result<Helixite> {
+        let path = path.as_ref().to_path_buf();
+        let storage = LmdbStorage::open(&path, &self.config)?;
         Ok(Helixite {
-            path: self.path,
+            path,
             storage,
         })
     }
 }
 
 impl<S: StorageEngine> HelixiteStorageBuilder<S> {
-    pub fn open(self) -> Result<Helixite<S>> {
+    pub fn open(self, path: impl AsRef<Path>) -> Result<Helixite<S>> {
         Ok(Helixite {
-            path: self.path,
+            path: path.as_ref().to_path_buf(),
             storage: self.storage,
         })
     }

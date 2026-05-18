@@ -1,5 +1,5 @@
 use helixite::storage::{Db, StorageEngine, StorageTxn};
-use helixite::Helixite;
+use helixite::HelixiteBuilder;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tempfile::tempdir;
@@ -179,7 +179,7 @@ fn test_memory_txn_write_aborts_on_error() {
 #[test]
 fn test_lmdb_storage_get_put_scan_delete() {
     let dir = tempdir().unwrap();
-    let db = Helixite::open(dir.path(), None).unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
     db.storage()
         .write(|txn| {

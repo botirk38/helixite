@@ -1,5 +1,5 @@
 use helixite::storage::{Db, StorageEngine, StorageTxn};
-use helixite::{Config, Helixite};
+use helixite::{Config, HelixiteBuilder};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tempfile::tempdir;
@@ -72,7 +72,7 @@ impl StorageTxn for MemoryTxn<'_> {
 #[test]
 fn test_open_new_db() {
     let dir = tempdir().unwrap();
-    let db = Helixite::open(dir.path(), None).unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
     assert!(db.path().exists());
 }
 
@@ -81,10 +81,10 @@ fn test_reopen_db() {
     let dir = tempdir().unwrap();
     let path = dir.path();
 
-    let db1 = Helixite::open(path, None).unwrap();
+    let db1 = HelixiteBuilder::default().open(path).unwrap();
     drop(db1);
 
-    let db2 = Helixite::open(path, None).unwrap();
+    let db2 = HelixiteBuilder::default().open(path).unwrap();
     assert!(db2.path().exists());
 }
 
@@ -92,16 +92,16 @@ fn test_reopen_db() {
 fn test_open_with_config() {
     let dir = tempdir().unwrap();
     let config = Config::default().with_map_size(64 * 1024 * 1024);
-    let db = Helixite::open(dir.path(), Some(config)).unwrap();
+    let db = HelixiteBuilder::default().config(config).open(dir.path()).unwrap();
     assert!(db.path().exists());
 }
 
 #[test]
 fn test_open_with_storage_accepts_custom_engine() {
     let dir = tempdir().unwrap();
-    let db = Helixite::builder(dir.path())
+    let db = HelixiteBuilder::default()
         .storage(MemoryStorage::default())
-        .open()
+        .open(dir.path())
         .unwrap();
 
     let id = db.add_node("User", Vec::new()).unwrap();
