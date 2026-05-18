@@ -10,14 +10,7 @@ use super::env::open_env;
 
 pub struct LmdbStorage {
     env: Env,
-    metadata_db: Database<Bytes, Bytes>,
-    nodes_db: Database<Bytes, Bytes>,
-    edges_db: Database<Bytes, Bytes>,
-    out_edges_db: Database<Bytes, Bytes>,
-    in_edges_db: Database<Bytes, Bytes>,
-    labels_db: Database<Bytes, Bytes>,
-    properties_db: Database<Bytes, Bytes>,
-    vector_indexes_db: Database<Bytes, Bytes>,
+    dbs: [Database<Bytes, Bytes>; Db::COUNT],
 }
 
 impl LmdbStorage {
@@ -25,58 +18,34 @@ impl LmdbStorage {
         let env = open_env(path, config)?;
 
         let mut wtxn = env.write_txn()?;
-        let metadata_db: Database<Bytes, Bytes> =
-            env.create_database(&mut wtxn, Some("metadata"))?;
-        let nodes_db: Database<Bytes, Bytes> = env.create_database(&mut wtxn, Some("nodes"))?;
-        let edges_db: Database<Bytes, Bytes> = env.create_database(&mut wtxn, Some("edges"))?;
-        let out_edges_db: Database<Bytes, Bytes> =
-            env.create_database(&mut wtxn, Some("out_edges"))?;
-        let in_edges_db: Database<Bytes, Bytes> =
-            env.create_database(&mut wtxn, Some("in_edges"))?;
-        let labels_db: Database<Bytes, Bytes> = env.create_database(&mut wtxn, Some("labels"))?;
-        let properties_db: Database<Bytes, Bytes> =
-            env.create_database(&mut wtxn, Some("properties"))?;
-        let vector_indexes_db: Database<Bytes, Bytes> =
-            env.create_database(&mut wtxn, Some("vector_indexes"))?;
+        let mut dbs = [None; Db::COUNT];
+
+        for db in Db::ALL {
+            dbs[db.index()] = Some(env.create_database(&mut wtxn, Some(db.name()))?);
+        }
+
         wtxn.commit()?;
 
-        Ok(Self {
-            env,
-            metadata_db,
-            nodes_db,
-            edges_db,
-            out_edges_db,
-            in_edges_db,
-            labels_db,
-            properties_db,
-            vector_indexes_db,
-        })
+        let dbs = dbs.map(|db| db.expect("all dbs initialized"));
+
+        Ok(Self { env, dbs })
     }
 
-    fn db_for(&self, db: Db) -> Database<Bytes, Bytes> {
-        match db {
-            Db::Metadata => self.metadata_db,
-            Db::Nodes => self.nodes_db,
-            Db::Edges => self.edges_db,
-            Db::OutEdges => self.out_edges_db,
-            Db::InEdges => self.in_edges_db,
-            Db::Labels => self.labels_db,
-            Db::Properties => self.properties_db,
-            Db::VectorIndexes => self.vector_indexes_db,
-        }
+    fn database(&self, db: Db) -> Database<Bytes, Bytes> {
+        self.dbs[db.index()]
     }
 }
 
 impl StorageEngine for LmdbStorage {
     fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let rtxn = self.env.read_txn()?;
-        let database = self.db_for(db);
+        let database = self.database(db);
         Ok(database.get(&rtxn, key)?.map(|b| b.to_vec()))
     }
 
     fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let rtxn = self.env.read_txn()?;
-        let database = self.db_for(db);
+        let database = self.database(db);
         let iter = database.prefix_iter(&rtxn, prefix)?;
         let mut results = Vec::new();
         for entry in iter {
@@ -131,31 +100,31 @@ impl<'e> LmdbTxn<'e> {
             .ok_or_else(|| HelixiteError::Storage("transaction already closed".into()))
     }
 
-    fn db_for(&self, db: Db) -> Database<Bytes, Bytes> {
-        self.storage.db_for(db)
+    fn database(&self, db: Db) -> Database<Bytes, Bytes> {
+        self.storage.database(db)
     }
 }
 
 impl StorageTxn for LmdbTxn<'_> {
     fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let database = self.db_for(db);
+        let database = self.database(db);
         Ok(database.get(self.txn()?, key)?.map(|b| b.to_vec()))
     }
 
     fn put(&mut self, db: Db, key: &[u8], value: &[u8]) -> Result<()> {
-        let database = self.db_for(db);
+        let database = self.database(db);
         database.put(self.txn_mut()?, key, value)?;
         Ok(())
     }
 
     fn delete(&mut self, db: Db, key: &[u8]) -> Result<()> {
-        let database = self.db_for(db);
+        let database = self.database(db);
         database.delete(self.txn_mut()?, key)?;
         Ok(())
     }
 
     fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        let database = self.db_for(db);
+        let database = self.database(db);
         let iter = database.prefix_iter(self.txn()?, prefix)?;
         let mut results = Vec::new();
         for entry in iter {
