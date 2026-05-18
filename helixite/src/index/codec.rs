@@ -10,13 +10,15 @@ impl KeyBuilder {
     }
 
     pub(crate) fn str(mut self, value: &str) -> Self {
-        self.bytes.extend((value.len() as u32).to_be_bytes());
+        let len = u32::try_from(value.len()).expect("key string field exceeds u32::MAX");
+        self.bytes.extend(len.to_be_bytes());
         self.bytes.extend(value.as_bytes());
         self
     }
 
     pub(crate) fn bytes(mut self, value: &[u8]) -> Self {
-        self.bytes.extend((value.len() as u32).to_be_bytes());
+        let len = u32::try_from(value.len()).expect("key bytes field exceeds u32::MAX");
+        self.bytes.extend(len.to_be_bytes());
         self.bytes.extend(value);
         self
     }
@@ -42,7 +44,7 @@ impl<'a> KeyReader<'a> {
     }
 
     pub(crate) fn str(&mut self) -> Option<&'a [u8]> {
-        let len = self.u32()? as usize;
+        let len = usize::try_from(self.u32()?).ok()?;
         if self.cursor + len > self.bytes.len() {
             return None;
         }
@@ -52,7 +54,7 @@ impl<'a> KeyReader<'a> {
     }
 
     pub(crate) fn bytes(&mut self) -> Option<&'a [u8]> {
-        let len = self.u32()? as usize;
+        let len = usize::try_from(self.u32()?).ok()?;
         if self.cursor + len > self.bytes.len() {
             return None;
         }
