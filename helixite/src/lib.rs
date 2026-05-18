@@ -3,11 +3,11 @@ pub mod db;
 pub mod edge;
 pub mod error;
 pub mod id;
+pub mod index;
 pub mod node;
 pub mod storage;
 pub mod value;
 
-mod index;
 mod query;
 
 pub use config::Config;

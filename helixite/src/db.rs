@@ -14,6 +14,7 @@ use crate::value::Value;
 use crate::index::edges::EdgeIndex;
 use crate::index::labels::LabelIndex;
 use crate::index::properties::PropertyIndex;
+use crate::index::vector::{VectorIndex, VectorIndexKind};
 
 const METADATA_NEXT_NODE_ID: &[u8] = b"next_node_id";
 const METADATA_NEXT_EDGE_ID: &[u8] = b"next_edge_id";
@@ -98,6 +99,11 @@ impl<S: StorageEngine> Helixite<S> {
             for (prop_name, prop_value) in &node.properties {
                 if let Some(key) = PropertyIndex::key(prop_name, prop_value, next_id) {
                     txn.put(Db::Properties, &key, &[])?;
+                }
+                if let Value::Vector(vector) = prop_value {
+                    let key = VectorIndex::key(VectorIndexKind::Exact, &label, prop_name, next_id);
+                    let bytes = VectorIndex::serialize_vector(vector);
+                    txn.put(Db::VectorIndexes, &key, &bytes)?;
                 }
             }
 
