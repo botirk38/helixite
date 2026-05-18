@@ -40,24 +40,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     }
 
     pub fn collect(self) -> Result<Vec<Node>> {
-        if self.filters.is_empty() {
-            return self.collect_by_label();
-        }
-
-        let mut id_sets: Vec<Vec<NodeId>> = Vec::with_capacity(self.filters.len());
-        for filter in &self.filters {
-            let PropertyFilter::Eq(property, value) = filter;
-            let ids = self.scan_ids_by_property(property, value)?;
-            id_sets.push(ids);
-        }
-
-        let mut matching_ids = self.intersect_id_sets(id_sets)?;
-
-        if let Some(ref label) = self.label {
-            let label_ids = self.scan_ids_by_label(label)?;
-            matching_ids.retain(|id| label_ids.binary_search(id).is_ok());
-        }
-
+        let matching_ids = self.resolve_matching_ids()?;
         self.load_nodes(&matching_ids)
     }
 
@@ -67,29 +50,33 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     }
 
     pub fn count(self) -> Result<usize> {
+        let matching_ids = self.resolve_matching_ids()?;
+        Ok(matching_ids.len())
+    }
+
+    fn resolve_matching_ids(&self) -> Result<Vec<NodeId>> {
         if self.filters.is_empty() {
-            return self.count_by_label();
+            return self
+                .label
+                .as_ref()
+                .map(|l| self.scan_ids_by_label(l))
+                .unwrap_or(Ok(Vec::new()));
         }
 
         let mut id_sets: Vec<Vec<NodeId>> = Vec::with_capacity(self.filters.len());
         for filter in &self.filters {
             let PropertyFilter::Eq(property, value) = filter;
-            let ids = self.scan_ids_by_property(property, value)?;
-            id_sets.push(ids);
+            id_sets.push(self.scan_ids_by_property(property, value)?);
         }
 
-        let matching_ids = self.intersect_id_sets(id_sets)?;
+        let mut matching_ids = self.intersect_id_sets(id_sets)?;
 
         if let Some(ref label) = self.label {
             let label_ids = self.scan_ids_by_label(label)?;
-            let count = matching_ids
-                .iter()
-                .filter(|id| label_ids.binary_search(id).is_ok())
-                .count();
-            return Ok(count);
+            matching_ids.retain(|id| label_ids.binary_search(id).is_ok());
         }
 
-        Ok(matching_ids.len())
+        Ok(matching_ids)
     }
 
     fn scan_ids_by_property(&self, property: &str, value: &Value) -> Result<Vec<NodeId>> {
@@ -154,19 +141,5 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
             nodes.push(node);
         }
         Ok(nodes)
-    }
-
-    fn count_by_label(self) -> Result<usize> {
-        let Some(ref label) = self.label else {
-            return Ok(0);
-        };
-
-        let ids = self.scan_ids_by_label(label)?;
-        Ok(ids.len())
-    }
-
-    fn collect_by_label(self) -> Result<Vec<Node>> {
-        let ids = self.scan_ids_by_label(self.label.as_ref().unwrap())?;
-        self.load_nodes(&ids)
     }
 }
