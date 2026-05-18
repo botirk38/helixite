@@ -79,15 +79,37 @@ impl<S: StorageEngine> Helixite<S> {
                 None => 1,
             };
 
+            let properties: std::collections::BTreeMap<String, Value> =
+                properties.into_iter().collect();
+
             let node = Node {
                 id: next_id,
-                label,
-                properties: properties.into_iter().collect(),
+                label: label.clone(),
+                properties,
             };
 
             let bytes =
                 bincode::serialize(&node).map_err(|e| HelixiteError::Codec(e.to_string()))?;
             txn.put(Db::Nodes, &next_id.to_be_bytes(), &bytes)?;
+
+            let mut label_key = label.as_bytes().to_vec();
+            label_key.extend(b"/");
+            label_key.extend(next_id.to_be_bytes());
+            txn.put(Db::Labels, &label_key, &[])?;
+
+            for (prop_name, prop_value) in &node.properties {
+                if let Some(value_bytes) = prop_value.to_index_key() {
+                    let mut prop_key = label.as_bytes().to_vec();
+                    prop_key.extend(b"/");
+                    prop_key.extend(prop_name.as_bytes());
+                    prop_key.extend(b"/");
+                    prop_key.extend(&value_bytes);
+                    prop_key.extend(b"/");
+                    prop_key.extend(next_id.to_be_bytes());
+                    txn.put(Db::Properties, &prop_key, &[])?;
+                }
+            }
+
             txn.put(
                 Db::Metadata,
                 METADATA_NEXT_NODE_ID,
@@ -203,6 +225,48 @@ impl<S: StorageEngine> Helixite<S> {
 
         Ok(edges)
     }
+
+    pub fn find_nodes_by_label(&self, label: &str) -> Result<Vec<Node>> {
+        let entries = self.storage.scan_prefix(Db::Labels, label.as_bytes())?;
+
+        let mut nodes = Vec::new();
+        for (key, _) in entries {
+            if let Some(node_id) = extract_node_id_from_label_key(&key) {
+                let node = self.get_node(node_id)?;
+                nodes.push(node);
+            }
+        }
+
+        Ok(nodes)
+    }
+
+    pub fn find_nodes_by_property(
+        &self,
+        label: &str,
+        property_name: &str,
+        value: &Value,
+    ) -> Result<Vec<Node>> {
+        let mut prefix = label.as_bytes().to_vec();
+        prefix.extend(b"/");
+        prefix.extend(property_name.as_bytes());
+        prefix.extend(b"/");
+        if let Some(value_bytes) = value.to_index_key() {
+            prefix.extend(&value_bytes);
+        }
+        prefix.extend(b"/");
+
+        let entries = self.storage.scan_prefix(Db::Properties, &prefix)?;
+
+        let mut nodes = Vec::new();
+        for (key, _) in entries {
+            if let Some(node_id) = extract_node_id_from_property_key(&key) {
+                let node = self.get_node(node_id)?;
+                nodes.push(node);
+            }
+        }
+
+        Ok(nodes)
+    }
 }
 
 fn decode_u64(bytes: &[u8], name: &str) -> Result<u64> {
@@ -210,4 +274,26 @@ fn decode_u64(bytes: &[u8], name: &str) -> Result<u64> {
         .try_into()
         .map_err(|_| HelixiteError::Storage(format!("invalid {name} metadata value")))?;
     Ok(u64::from_be_bytes(bytes))
+}
+
+fn extract_node_id_from_label_key(key: &[u8]) -> Option<NodeId> {
+    if let Some(pos) = key.iter().rposition(|&b| b == b'/') {
+        let id_bytes = &key[pos + 1..];
+        if id_bytes.len() == 8 {
+            let bytes: [u8; 8] = id_bytes.try_into().ok()?;
+            return Some(u64::from_be_bytes(bytes));
+        }
+    }
+    None
+}
+
+fn extract_node_id_from_property_key(key: &[u8]) -> Option<NodeId> {
+    if let Some(pos) = key.iter().rposition(|&b| b == b'/') {
+        let id_bytes = &key[pos + 1..];
+        if id_bytes.len() == 8 {
+            let bytes: [u8; 8] = id_bytes.try_into().ok()?;
+            return Some(u64::from_be_bytes(bytes));
+        }
+    }
+    None
 }
