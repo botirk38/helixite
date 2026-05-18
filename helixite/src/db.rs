@@ -142,6 +142,86 @@ impl<S: StorageEngine> Helixite<S> {
         Ok(node)
     }
 
+    pub fn update_node(
+        &self,
+        id: NodeId,
+        label: Option<impl Into<String>>,
+        properties: Option<impl IntoIterator<Item = (String, Value)>>,
+    ) -> Result<()> {
+        let current = self.get_node(id)?;
+
+        let new_label = label.map(Into::into);
+        let new_properties =
+            properties.map(|p| p.into_iter().collect::<std::collections::BTreeMap<_, _>>());
+
+        for (prop_name, prop_value) in new_properties.iter().flatten() {
+            if let Value::Vector(vector) = prop_value {
+                let label_ref = new_label.as_ref().unwrap_or(&current.label);
+                if let Ok(meta) = VectorIndex::load_meta(&self.storage, label_ref, prop_name)
+                    && vector.len() != meta.dimension
+                {
+                    return Err(HelixiteError::InvalidVectorDim {
+                        expected: meta.dimension,
+                        actual: vector.len(),
+                    });
+                }
+            }
+        }
+
+        self.storage.write(|txn| {
+            let mut updated = current.clone();
+
+            if let Some(ref new_label) = new_label {
+                let old_label_key = LabelIndex::key(&current.label, id);
+                txn.delete(Db::Labels, &old_label_key)?;
+                let new_label_key = LabelIndex::new_label_key(new_label, id);
+                txn.put(Db::Labels, &new_label_key, &[])?;
+                updated.label = new_label.clone();
+            }
+
+            if let Some(ref new_props) = new_properties {
+                for (prop_name, old_value) in &current.properties {
+                    if let Some(key) = PropertyIndex::key(prop_name, old_value, id) {
+                        txn.delete(Db::Properties, &key)?;
+                    }
+                    if let Value::Vector(_) = old_value
+                        && let Ok(meta) =
+                            VectorIndex::load_meta_from_txn(txn, &updated.label, prop_name)
+                    {
+                        VectorIndex::delete_from_txn(txn, &updated.label, prop_name, id, &meta)?;
+                    }
+                }
+
+                for (prop_name, new_value) in new_props {
+                    if let Some(key) = PropertyIndex::key(prop_name, new_value, id) {
+                        txn.put(Db::Properties, &key, &[])?;
+                    }
+                    if let Value::Vector(vector) = new_value
+                        && let Ok(meta) =
+                            VectorIndex::load_meta_from_txn(txn, &updated.label, prop_name)
+                    {
+                        VectorIndex::insert_into_txn(
+                            txn,
+                            &updated.label,
+                            prop_name,
+                            id,
+                            vector,
+                            &meta,
+                        )?;
+                    }
+                }
+
+                updated.properties = new_props.clone();
+            }
+
+            let bytes =
+                bincode::serialize(&updated).map_err(|e| HelixiteError::Codec(e.to_string()))?;
+            txn.put(Db::Nodes, &id.to_be_bytes(), &bytes)?;
+
+            Ok(())
+        })
+    }
+
     pub fn add_edge(
         &self,
         from: NodeId,
@@ -193,6 +273,46 @@ impl<S: StorageEngine> Helixite<S> {
         let edge = bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))?;
 
         Ok(edge)
+    }
+
+    pub fn update_edge(
+        &self,
+        id: EdgeId,
+        label: Option<impl Into<String>>,
+        properties: Option<impl IntoIterator<Item = (String, Value)>>,
+    ) -> Result<()> {
+        let current = self.get_edge(id)?;
+
+        let new_label = label.map(Into::into);
+        let new_properties =
+            properties.map(|p| p.into_iter().collect::<std::collections::BTreeMap<_, _>>());
+
+        self.storage.write(|txn| {
+            let mut updated = current.clone();
+
+            if let Some(ref new_label) = new_label {
+                let old_out = EdgeIndex::out_key(current.from, &current.label, id);
+                txn.delete(Db::OutEdges, &old_out)?;
+                let old_in = EdgeIndex::in_key(current.to, &current.label, id);
+                txn.delete(Db::InEdges, &old_in)?;
+
+                let new_out = EdgeIndex::out_key(current.from, new_label, id);
+                txn.put(Db::OutEdges, &new_out, &id.to_be_bytes())?;
+                let new_in = EdgeIndex::in_key(current.to, new_label, id);
+                txn.put(Db::InEdges, &new_in, &id.to_be_bytes())?;
+                updated.label = new_label.clone();
+            }
+
+            if let Some(ref new_props) = new_properties {
+                updated.properties = new_props.clone();
+            }
+
+            let bytes =
+                bincode::serialize(&updated).map_err(|e| HelixiteError::Codec(e.to_string()))?;
+            txn.put(Db::Edges, &id.to_be_bytes(), &bytes)?;
+
+            Ok(())
+        })
     }
 
     pub fn nodes(&self) -> NodeQuery<'_, S> {

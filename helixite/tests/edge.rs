@@ -134,3 +134,117 @@ fn test_edge_persists_after_reopen() {
     let edge = db.get_edge(1).unwrap();
     assert_eq!(edge.label, "knows");
 }
+
+#[test]
+fn test_update_edge_properties() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    let from = db.add_node("User", Vec::new()).unwrap();
+    let to = db.add_node("User", Vec::new()).unwrap();
+
+    let id = db
+        .add_edge(
+            from,
+            to,
+            "knows",
+            vec![("since".to_string(), Value::Int(2020))],
+        )
+        .unwrap();
+
+    db.update_edge(
+        id,
+        None::<String>,
+        Some(vec![("since".to_string(), Value::Int(2024))]),
+    )
+    .unwrap();
+
+    let edge = db.get_edge(id).unwrap();
+    assert_eq!(edge.properties.get("since"), Some(&Value::Int(2024)));
+}
+
+#[test]
+fn test_update_edge_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+
+    let id = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    db.update_edge(id, Some("follows"), None::<Vec<(String, Value)>>)
+        .unwrap();
+
+    let edge = db.get_edge(id).unwrap();
+    assert_eq!(edge.label, "follows");
+
+    let knows = db.node(a).out("knows").collect_edges().unwrap();
+    assert!(knows.is_empty());
+
+    let follows = db.node(a).out("follows").collect_edges().unwrap();
+    assert_eq!(follows.len(), 1);
+}
+
+#[test]
+fn test_update_edge_label_and_properties() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    let from = db.add_node("User", Vec::new()).unwrap();
+    let to = db.add_node("User", Vec::new()).unwrap();
+
+    let id = db
+        .add_edge(
+            from,
+            to,
+            "knows",
+            vec![("since".to_string(), Value::Int(2020))],
+        )
+        .unwrap();
+
+    db.update_edge(
+        id,
+        Some("friends_with"),
+        Some(vec![("since".to_string(), Value::Int(2024))]),
+    )
+    .unwrap();
+
+    let edge = db.get_edge(id).unwrap();
+    assert_eq!(edge.label, "friends_with");
+    assert_eq!(edge.properties.get("since"), Some(&Value::Int(2024)));
+}
+
+#[test]
+fn test_update_edge_persists_after_reopen() {
+    let dir = tempdir().unwrap();
+    let path = dir.path();
+
+    {
+        let db = HelixiteBuilder::default().open(path).unwrap();
+        let from = db.add_node("User", Vec::new()).unwrap();
+        let to = db.add_node("User", Vec::new()).unwrap();
+        let id = db.add_edge(from, to, "knows", Vec::new()).unwrap();
+
+        db.update_edge(
+            id,
+            Some("follows"),
+            Some(vec![("weight".to_string(), Value::Float(0.5))]),
+        )
+        .unwrap();
+    }
+
+    let db = HelixiteBuilder::default().open(path).unwrap();
+    let edge = db.get_edge(1).unwrap();
+    assert_eq!(edge.label, "follows");
+    assert_eq!(edge.properties.get("weight"), Some(&Value::Float(0.5)));
+}
+
+#[test]
+fn test_update_nonexistent_edge_errors() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    let result = db.update_edge(999, None::<String>, None::<Vec<(String, Value)>>);
+    assert!(matches!(result, Err(HelixiteError::EdgeNotFound(999))));
+}

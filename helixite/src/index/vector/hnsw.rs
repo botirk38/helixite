@@ -142,6 +142,74 @@ impl Hnsw {
         Ok(())
     }
 
+    pub(crate) fn delete_from_txn(
+        txn: &mut dyn crate::storage::StorageTxn,
+        label: &str,
+        property: &str,
+        node_id: NodeId,
+        meta: &VectorIndexMeta,
+    ) -> Result<()> {
+        let node_level = match txn.get(Db::VectorIndexes, &lvl_key(label, property, node_id))? {
+            Some(bytes) => bytes[0],
+            None => return Ok(()),
+        };
+
+        for l in 0..=node_level {
+            let prefix = lnk_prefix(label, property, l, node_id);
+            let entries = txn.scan_prefix(Db::VectorIndexes, &prefix)?;
+            for (key, _) in entries {
+                txn.delete(Db::VectorIndexes, &key)?;
+            }
+
+            let neighbor_prefix = lnk_prefix(label, property, l, 0);
+            let all_links = txn.scan_prefix(Db::VectorIndexes, &neighbor_prefix)?;
+            for (key, _) in all_links {
+                if let Some((link_level, neighbor, target)) = decode_link_from_lnk_key(&key)
+                    && target == node_id
+                {
+                    let full_key = lnk_key(label, property, link_level, neighbor, target);
+                    txn.delete(Db::VectorIndexes, &full_key)?;
+                }
+            }
+        }
+
+        txn.delete(Db::VectorIndexes, &vec_key(label, property, node_id))?;
+        txn.delete(Db::VectorIndexes, &lvl_key(label, property, node_id))?;
+
+        if meta.entry_point == Some(node_id) {
+            let mut new_ep = None;
+            let mut new_max_level = 0u8;
+
+            let all_vecs = txn.scan_prefix(Db::VectorIndexes, &vec_prefix(label, property))?;
+            for (key, _) in all_vecs {
+                if let Some(nid) = decode_node_id_from_vec_key(&key)
+                    && nid != node_id
+                    && let Some(lvl_bytes) =
+                        txn.get(Db::VectorIndexes, &lvl_key(label, property, nid))?
+                {
+                    let lvl = lvl_bytes[0];
+                    if lvl > new_max_level {
+                        new_max_level = lvl;
+                        new_ep = Some(nid);
+                    }
+                }
+            }
+
+            let new_meta = VectorIndexMeta {
+                entry_point: new_ep,
+                max_level: new_max_level,
+                ..meta.clone()
+            };
+            txn.put(
+                Db::VectorIndexes,
+                &meta_key(label, property),
+                &new_meta.serialize(),
+            )?;
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn search(
         storage: &impl StorageEngine,
         label: &str,
