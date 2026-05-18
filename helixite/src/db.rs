@@ -46,10 +46,7 @@ impl HelixiteBuilder {
     pub fn open(self, path: impl AsRef<Path>) -> Result<Helixite> {
         let path = path.as_ref().to_path_buf();
         let storage = LmdbStorage::open(&path, &self.config)?;
-        Ok(Helixite {
-            path,
-            storage,
-        })
+        Ok(Helixite { path, storage })
     }
 }
 
