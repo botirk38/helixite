@@ -63,70 +63,62 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
 
 impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
     pub fn collect_edges(self) -> Result<Vec<crate::edge::Edge>> {
-        let prefix = match self.direction {
-            Direction::Out => EdgeIndex::out_prefix(self.node_id, self.label.as_deref()),
-            Direction::In => EdgeIndex::in_prefix(self.node_id, self.label.as_deref()),
-        };
-
-        let db = match self.direction {
-            Direction::Out => Db::OutEdges,
-            Direction::In => Db::InEdges,
-        };
-
+        let (db, prefix) = self.prefix_and_db();
         let entries = self.storage.scan_prefix(db, &prefix)?;
         let mut edges = Vec::new();
+
         for (key, _) in entries {
-            if let Some(edge_id) = EdgeIndex::decode_edge_id(&key)
-                && let Some(bytes) = self.storage.get(Db::Edges, &edge_id.to_be_bytes())?
-            {
-                let edge: crate::edge::Edge = bincode::deserialize(&bytes)
-                    .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
-                edges.push(edge);
-            }
+            let Some(edge_id) = EdgeIndex::decode_edge_id(&key) else {
+                continue;
+            };
+            let Some(bytes) = self.storage.get(Db::Edges, &edge_id.to_be_bytes())? else {
+                continue;
+            };
+            let edge: crate::edge::Edge = bincode::deserialize(&bytes)
+                .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
+            edges.push(edge);
         }
 
         Ok(edges)
     }
 
     pub fn collect_nodes(self) -> Result<Vec<Node>> {
-        let prefix = match self.direction {
-            Direction::Out => EdgeIndex::out_prefix(self.node_id, self.label.as_deref()),
-            Direction::In => EdgeIndex::in_prefix(self.node_id, self.label.as_deref()),
-        };
-
-        let db = match self.direction {
-            Direction::Out => Db::OutEdges,
-            Direction::In => Db::InEdges,
-        };
-
+        let (db, prefix) = self.prefix_and_db();
         let entries = self.storage.scan_prefix(db, &prefix)?;
         let mut nodes = Vec::new();
+
         for (key, _) in entries {
-            if let Some(target_id) =
-                EdgeIndex::decode_target_node(self.storage, &key, self.direction)
-                && let Some(bytes) = self.storage.get(Db::Nodes, &target_id.to_be_bytes())?
-            {
-                let node: Node = bincode::deserialize(&bytes)
-                    .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
-                nodes.push(node);
-            }
+            let Some(target_id) = EdgeIndex::decode_target_node(self.storage, &key, self.direction)
+            else {
+                continue;
+            };
+            let Some(bytes) = self.storage.get(Db::Nodes, &target_id.to_be_bytes())? else {
+                continue;
+            };
+            let node: Node = bincode::deserialize(&bytes)
+                .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
+            nodes.push(node);
         }
 
         Ok(nodes)
     }
 
     pub fn count(self) -> Result<usize> {
-        let prefix = match self.direction {
-            Direction::Out => EdgeIndex::out_prefix(self.node_id, self.label.as_deref()),
-            Direction::In => EdgeIndex::in_prefix(self.node_id, self.label.as_deref()),
-        };
-
-        let db = match self.direction {
-            Direction::Out => Db::OutEdges,
-            Direction::In => Db::InEdges,
-        };
-
+        let (db, prefix) = self.prefix_and_db();
         let entries = self.storage.scan_prefix(db, &prefix)?;
         Ok(entries.len())
+    }
+
+    fn prefix_and_db(&self) -> (Db, Vec<u8>) {
+        match self.direction {
+            Direction::Out => (
+                Db::OutEdges,
+                EdgeIndex::out_prefix(self.node_id, self.label.as_deref()),
+            ),
+            Direction::In => (
+                Db::InEdges,
+                EdgeIndex::in_prefix(self.node_id, self.label.as_deref()),
+            ),
+        }
     }
 }

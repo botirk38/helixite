@@ -44,40 +44,16 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
             return self.collect_by_label();
         }
 
-        let first_filter = &self.filters[0];
-        let mut nodes = match first_filter {
-            PropertyFilter::Eq(property, value) => {
-                if let Some(prefix) = PropertyIndex::prefix(property, value) {
-                    let entries = self.storage.scan_prefix(Db::Properties, &prefix)?;
-                    let mut nodes = Vec::new();
-                    for (key, _) in entries {
-                        if let Some(node_id) = PropertyIndex::decode_node_id(&key)
-                            && let Some(bytes) =
-                                self.storage.get(Db::Nodes, &node_id.to_be_bytes())?
-                        {
-                            let node: Node = bincode::deserialize(&bytes)
-                                .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
-                            nodes.push(node);
-                        }
-                    }
-                    nodes
-                } else {
-                    Vec::new()
-                }
-            }
-        };
+        let PropertyFilter::Eq(property, value) = &self.filters[0];
+        let mut nodes = self.scan_by_property(property, value)?;
 
-        if self.filters.len() > 1 {
-            let remaining = &self.filters[1..];
-            nodes.retain(|node| {
-                remaining.iter().all(|f| match f {
-                    PropertyFilter::Eq(prop, val) => node.properties.get(prop) == Some(val),
-                })
-            });
+        for filter in &self.filters[1..] {
+            let PropertyFilter::Eq(prop, val) = filter;
+            nodes.retain(|n| n.properties.get(prop) == Some(val));
         }
 
         if let Some(ref label) = self.label {
-            nodes.retain(|node| &node.label == label);
+            nodes.retain(|n| &n.label == label);
         }
 
         Ok(nodes)
@@ -92,24 +68,50 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
         self.collect().map(|nodes| nodes.len())
     }
 
-    fn collect_by_label(self) -> Result<Vec<Node>> {
-        match self.label {
-            Some(ref label) => {
-                let prefix = LabelIndex::prefix(label);
-                let entries = self.storage.scan_prefix(Db::Labels, &prefix)?;
-                let mut nodes = Vec::new();
-                for (key, _) in entries {
-                    if let Some(node_id) = LabelIndex::decode_node_id(&key)
-                        && let Some(bytes) = self.storage.get(Db::Nodes, &node_id.to_be_bytes())?
-                    {
-                        let node: Node = bincode::deserialize(&bytes)
-                            .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
-                        nodes.push(node);
-                    }
-                }
-                Ok(nodes)
-            }
-            None => Ok(Vec::new()),
+    fn scan_by_property(&self, property: &str, value: &Value) -> Result<Vec<Node>> {
+        let Some(prefix) = PropertyIndex::prefix(property, value) else {
+            return Ok(Vec::new());
+        };
+
+        let entries = self.storage.scan_prefix(Db::Properties, &prefix)?;
+        let mut nodes = Vec::new();
+
+        for (key, _) in entries {
+            let Some(node_id) = PropertyIndex::decode_node_id(&key) else {
+                continue;
+            };
+            let Some(bytes) = self.storage.get(Db::Nodes, &node_id.to_be_bytes())? else {
+                continue;
+            };
+            let node: Node = bincode::deserialize(&bytes)
+                .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
+            nodes.push(node);
         }
+
+        Ok(nodes)
+    }
+
+    fn collect_by_label(self) -> Result<Vec<Node>> {
+        let Some(ref label) = self.label else {
+            return Ok(Vec::new());
+        };
+
+        let prefix = LabelIndex::prefix(label);
+        let entries = self.storage.scan_prefix(Db::Labels, &prefix)?;
+        let mut nodes = Vec::new();
+
+        for (key, _) in entries {
+            let Some(node_id) = LabelIndex::decode_node_id(&key) else {
+                continue;
+            };
+            let Some(bytes) = self.storage.get(Db::Nodes, &node_id.to_be_bytes())? else {
+                continue;
+            };
+            let node: Node = bincode::deserialize(&bytes)
+                .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
+            nodes.push(node);
+        }
+
+        Ok(nodes)
     }
 }
