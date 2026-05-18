@@ -85,7 +85,7 @@ impl<S: StorageEngine> Helixite<S> {
             let node = Node {
                 id: next_id,
                 label: label.clone(),
-                properties: properties.clone(),
+                properties,
             };
 
             let bytes =
@@ -95,7 +95,7 @@ impl<S: StorageEngine> Helixite<S> {
             let label_k = LabelIndex::key(&label, next_id);
             txn.put(Db::Labels, &label_k, &[])?;
 
-            for (prop_name, prop_value) in &properties {
+            for (prop_name, prop_value) in &node.properties {
                 if let Some(key) = PropertyIndex::key(prop_name, prop_value, next_id) {
                     txn.put(Db::Properties, &key, &[])?;
                 }

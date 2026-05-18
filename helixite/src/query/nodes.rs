@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::node::Node;
 use crate::storage::StorageEngine;
@@ -20,7 +20,7 @@ pub struct NodeQuery<'a, S: StorageEngine> {
 }
 
 impl<'a, S: StorageEngine> NodeQuery<'a, S> {
-    pub fn new(storage: &'a S) -> Self {
+    pub(crate) fn new(storage: &'a S) -> Self {
         Self {
             storage,
             label: None,
@@ -45,8 +45,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     }
 
     pub fn ids(self) -> Result<Vec<NodeId>> {
-        self.collect()
-            .map(|nodes| nodes.iter().map(|n| n.id).collect())
+        self.resolve_matching_ids()
     }
 
     pub fn count(self) -> Result<usize> {
@@ -56,11 +55,10 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
 
     fn resolve_matching_ids(&self) -> Result<Vec<NodeId>> {
         if self.filters.is_empty() {
-            return self
-                .label
-                .as_ref()
-                .map(|l| self.scan_ids_by_label(l))
-                .unwrap_or(Ok(Vec::new()));
+            return match &self.label {
+                Some(label) => self.scan_ids_by_label(label),
+                None => self.scan_all_node_ids(),
+            };
         }
 
         let mut id_sets: Vec<Vec<NodeId>> = Vec::with_capacity(self.filters.len());
@@ -88,9 +86,9 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
         let mut ids = Vec::new();
 
         for (key, _) in entries {
-            if let Some(node_id) = PropertyIndex::decode_node_id(&key) {
-                ids.push(node_id);
-            }
+            let node_id = PropertyIndex::decode_node_id(&key)
+                .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
+            ids.push(node_id);
         }
 
         ids.sort_unstable();
@@ -103,9 +101,24 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
         let mut ids = Vec::new();
 
         for (key, _) in entries {
-            if let Some(node_id) = LabelIndex::decode_node_id(&key) {
-                ids.push(node_id);
-            }
+            let node_id = LabelIndex::decode_node_id(&key)
+                .ok_or_else(|| HelixiteError::Storage("corrupt label index key".into()))?;
+            ids.push(node_id);
+        }
+
+        ids.sort_unstable();
+        Ok(ids)
+    }
+
+    fn scan_all_node_ids(&self) -> Result<Vec<NodeId>> {
+        let entries = self.storage.scan_prefix(Db::Nodes, &[])?;
+        let mut ids = Vec::new();
+
+        for (key, _) in entries {
+            let id_bytes: [u8; 8] = key
+                .try_into()
+                .map_err(|_| HelixiteError::Storage("corrupt node key".into()))?;
+            ids.push(u64::from_be_bytes(id_bytes));
         }
 
         ids.sort_unstable();
@@ -133,11 +146,12 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     fn load_nodes(&self, ids: &[NodeId]) -> Result<Vec<Node>> {
         let mut nodes = Vec::with_capacity(ids.len());
         for id in ids {
-            let Some(bytes) = self.storage.get(Db::Nodes, &id.to_be_bytes())? else {
-                continue;
-            };
-            let node: Node = bincode::deserialize(&bytes)
-                .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
+            let bytes = self
+                .storage
+                .get(Db::Nodes, &id.to_be_bytes())?
+                .ok_or(HelixiteError::NodeNotFound(*id))?;
+            let node: Node =
+                bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))?;
             nodes.push(node);
         }
         Ok(nodes)

@@ -1,7 +1,5 @@
 use crate::edge::Direction;
 use crate::id::{EdgeId, NodeId};
-use crate::storage::StorageEngine;
-use crate::storage::engine::Db;
 
 use super::codec::{KeyBuilder, KeyReader};
 
@@ -49,17 +47,13 @@ impl EdgeIndex {
         Some(id)
     }
 
-    pub(crate) fn decode_target_node<S: StorageEngine>(
-        storage: &S,
-        key: &[u8],
+    pub(crate) fn decode_target_from_edge(
+        edge: &crate::edge::Edge,
         direction: Direction,
-    ) -> Option<NodeId> {
-        let edge_id = Self::decode_edge_id(key)?;
-        let edge_bytes = storage.get(Db::Edges, &edge_id.to_be_bytes()).ok()??;
-        let edge: crate::edge::Edge = bincode::deserialize(&edge_bytes).ok()?;
+    ) -> NodeId {
         match direction {
-            Direction::Out => Some(edge.to),
-            Direction::In => Some(edge.from),
+            Direction::Out => edge.to,
+            Direction::In => edge.from,
         }
     }
 }

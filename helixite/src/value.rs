@@ -13,11 +13,26 @@ pub enum Value {
 impl Value {
     pub(crate) fn to_index_key(&self) -> Option<Vec<u8>> {
         match self {
-            Value::String(s) => Some(s.as_bytes().to_vec()),
-            Value::Int(n) => Some(n.to_be_bytes().to_vec()),
-            Value::Float(f) => Some(f.to_be_bytes().to_vec()),
-            Value::Bool(b) => Some(vec![if *b { 1 } else { 0 }]),
-            Value::Bytes(b) => Some(b.clone()),
+            Value::String(s) => {
+                let mut key = Vec::with_capacity(1 + s.len());
+                key.push(0);
+                key.extend(s.as_bytes());
+                Some(key)
+            }
+            Value::Int(n) => {
+                let mut key = Vec::with_capacity(9);
+                key.push(1);
+                key.extend(n.to_be_bytes());
+                Some(key)
+            }
+            Value::Float(_) => None,
+            Value::Bool(b) => Some(vec![2, if *b { 1 } else { 0 }]),
+            Value::Bytes(b) => {
+                let mut key = Vec::with_capacity(1 + b.len());
+                key.push(3);
+                key.extend(b);
+                Some(key)
+            }
             Value::Vector(_) => None,
         }
     }

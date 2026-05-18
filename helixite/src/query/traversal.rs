@@ -1,5 +1,5 @@
-use crate::edge::Direction;
-use crate::error::Result;
+use crate::edge::{Direction, Edge};
+use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::node::Node;
 use crate::storage::StorageEngine;
@@ -20,7 +20,7 @@ pub struct TraversalQuery<'a, S: StorageEngine> {
 }
 
 impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
-    pub fn new(storage: &'a S, node_id: NodeId) -> Self {
+    pub(crate) fn new(storage: &'a S, node_id: NodeId) -> Self {
         Self { storage, node_id }
     }
 
@@ -62,20 +62,15 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
 }
 
 impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
-    pub fn collect_edges(self) -> Result<Vec<crate::edge::Edge>> {
+    pub fn collect_edges(self) -> Result<Vec<Edge>> {
         let (db, prefix) = self.prefix_and_db();
         let entries = self.storage.scan_prefix(db, &prefix)?;
-        let mut edges = Vec::new();
+        let mut edges = Vec::with_capacity(entries.len());
 
         for (key, _) in entries {
-            let Some(edge_id) = EdgeIndex::decode_edge_id(&key) else {
-                continue;
-            };
-            let Some(bytes) = self.storage.get(Db::Edges, &edge_id.to_be_bytes())? else {
-                continue;
-            };
-            let edge: crate::edge::Edge = bincode::deserialize(&bytes)
-                .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
+            let edge_id = EdgeIndex::decode_edge_id(&key)
+                .ok_or_else(|| HelixiteError::Storage("corrupt edge adjacency key".into()))?;
+            let edge = self.load_edge(edge_id)?;
             edges.push(edge);
         }
 
@@ -85,18 +80,12 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
     pub fn collect_nodes(self) -> Result<Vec<Node>> {
         let (db, prefix) = self.prefix_and_db();
         let entries = self.storage.scan_prefix(db, &prefix)?;
-        let mut nodes = Vec::new();
+        let mut nodes = Vec::with_capacity(entries.len());
 
         for (key, _) in entries {
-            let Some(target_id) = EdgeIndex::decode_target_node(self.storage, &key, self.direction)
-            else {
-                continue;
-            };
-            let Some(bytes) = self.storage.get(Db::Nodes, &target_id.to_be_bytes())? else {
-                continue;
-            };
-            let node: Node = bincode::deserialize(&bytes)
-                .map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))?;
+            let edge = self.load_edge_from_key(&key)?;
+            let target_id = EdgeIndex::decode_target_from_edge(&edge, self.direction);
+            let node = self.load_node(target_id)?;
             nodes.push(node);
         }
 
@@ -107,6 +96,28 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
         let (db, prefix) = self.prefix_and_db();
         let entries = self.storage.scan_prefix(db, &prefix)?;
         Ok(entries.len())
+    }
+
+    fn load_edge(&self, edge_id: NodeId) -> Result<Edge> {
+        let bytes = self
+            .storage
+            .get(Db::Edges, &edge_id.to_be_bytes())?
+            .ok_or(HelixiteError::EdgeNotFound(edge_id))?;
+        bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))
+    }
+
+    fn load_edge_from_key(&self, key: &[u8]) -> Result<Edge> {
+        let edge_id = EdgeIndex::decode_edge_id(key)
+            .ok_or_else(|| HelixiteError::Storage("corrupt edge adjacency key".into()))?;
+        self.load_edge(edge_id)
+    }
+
+    fn load_node(&self, node_id: NodeId) -> Result<Node> {
+        let bytes = self
+            .storage
+            .get(Db::Nodes, &node_id.to_be_bytes())?
+            .ok_or(HelixiteError::NodeNotFound(node_id))?;
+        bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))
     }
 
     fn prefix_and_db(&self) -> (Db, Vec<u8>) {
