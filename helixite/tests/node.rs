@@ -1,10 +1,10 @@
-use helixite::{Helixite, HelixiteError, Value};
+use helixite::{HelixiteBuilder, HelixiteError, Value};
 use tempfile::tempdir;
 
 #[test]
 fn test_add_node_returns_id() {
     let dir = tempdir().unwrap();
-    let db = Helixite::open(dir.path(), None).unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
     let id = db.add_node("User", Vec::new()).unwrap();
     assert_eq!(id, 1);
@@ -13,7 +13,7 @@ fn test_add_node_returns_id() {
 #[test]
 fn test_get_node() {
     let dir = tempdir().unwrap();
-    let db = Helixite::open(dir.path(), None).unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
     let id = db
         .add_node(
@@ -38,7 +38,7 @@ fn test_get_node() {
 #[test]
 fn test_get_missing_node_returns_error() {
     let dir = tempdir().unwrap();
-    let db = Helixite::open(dir.path(), None).unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
     let result = db.get_node(999);
     assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
@@ -50,7 +50,7 @@ fn test_node_persists_after_reopen() {
     let path = dir.path();
 
     {
-        let db = Helixite::open(path, None).unwrap();
+        let db = HelixiteBuilder::default().open(path).unwrap();
         db.add_node(
             "Chunk",
             vec![("text".to_string(), Value::String("hello".to_string()))],
@@ -58,7 +58,7 @@ fn test_node_persists_after_reopen() {
         .unwrap();
     }
 
-    let db = Helixite::open(path, None).unwrap();
+    let db = HelixiteBuilder::default().open(path).unwrap();
     let node = db.get_node(1).unwrap();
     assert_eq!(node.label, "Chunk");
     assert_eq!(
@@ -70,7 +70,7 @@ fn test_node_persists_after_reopen() {
 #[test]
 fn test_multiple_nodes_get_incrementing_ids() {
     let dir = tempdir().unwrap();
-    let db = Helixite::open(dir.path(), None).unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
     let id1 = db.add_node("A", Vec::new()).unwrap();
     let id2 = db.add_node("B", Vec::new()).unwrap();
