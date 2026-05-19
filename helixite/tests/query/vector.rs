@@ -270,7 +270,7 @@ fn test_nearest_with_property_filter() {
     let active_ids = db
         .nodes()
         .label("Chunk")
-        .where_eq("status", Value::String("active".to_string()))
+        .eq("status", Value::String("active".to_string()))
         .nearest("embedding", vec![1.0, 0.0, 0.0], 5)
         .ids()
         .unwrap();

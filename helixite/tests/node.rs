@@ -476,10 +476,10 @@ fn test_delete_node_cascades_to_outgoing_edges() {
 
     db.delete_node(a).unwrap();
 
-    let out = db.node(b).in_("knows").collect_edges().unwrap();
+    let out = db.node(b).incoming("knows").edges().unwrap();
     assert!(out.is_empty());
 
-    let out = db.node(c).in_("knows").collect_edges().unwrap();
+    let out = db.node(c).incoming("knows").edges().unwrap();
     assert!(out.is_empty());
 }
 
@@ -497,10 +497,10 @@ fn test_delete_node_cascades_to_incoming_edges() {
 
     db.delete_node(c).unwrap();
 
-    let out = db.node(a).out("knows").collect_edges().unwrap();
+    let out = db.node(a).outgoing("knows").edges().unwrap();
     assert!(out.is_empty());
 
-    let out = db.node(b).out("knows").collect_edges().unwrap();
+    let out = db.node(b).outgoing("knows").edges().unwrap();
     assert!(out.is_empty());
 }
 
@@ -546,7 +546,7 @@ fn test_delete_node_removes_indexed_property_entries() {
     let alices = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Alice".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
         .collect()
         .unwrap();
     assert_eq!(alices.len(), 1);
@@ -556,7 +556,7 @@ fn test_delete_node_removes_indexed_property_entries() {
     let alices = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Alice".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
         .collect()
         .unwrap();
     assert_eq!(alices.len(), 0);
@@ -580,9 +580,9 @@ fn test_delete_node_cascades_to_indexed_edges() {
 
     let edges = db
         .node(a)
-        .out("knows")
-        .where_eq("weight", Value::Float(1.0))
-        .collect_edges()
+        .outgoing("knows")
+        .eq("weight", Value::Float(1.0))
+        .edges()
         .unwrap();
     assert_eq!(edges.len(), 1);
 
@@ -590,9 +590,9 @@ fn test_delete_node_cascades_to_indexed_edges() {
 
     let edges = db
         .node(b)
-        .in_("knows")
-        .where_eq("weight", Value::Float(1.0))
-        .collect_edges()
+        .incoming("knows")
+        .eq("weight", Value::Float(1.0))
+        .edges()
         .unwrap();
     assert_eq!(edges.len(), 0);
 }
@@ -618,7 +618,7 @@ fn test_delete_node_persists_after_reopen() {
     let result = db.get_node(1);
     assert!(matches!(result, Err(HelixiteError::NodeNotFound(1))));
 
-    let out = db.node(2).in_("knows").collect_edges().unwrap();
+    let out = db.node(2).incoming("knows").edges().unwrap();
     assert!(out.is_empty());
 }
 

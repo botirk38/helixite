@@ -10,6 +10,48 @@ pub enum Value {
     Vector(Vec<f32>),
 }
 
+impl From<String> for Value {
+    fn from(v: String) -> Self {
+        Value::String(v)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(v: &str) -> Self {
+        Value::String(v.to_string())
+    }
+}
+
+impl From<i64> for Value {
+    fn from(v: i64) -> Self {
+        Value::Int(v)
+    }
+}
+
+impl From<f64> for Value {
+    fn from(v: f64) -> Self {
+        Value::Float(v)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(v: bool) -> Self {
+        Value::Bool(v)
+    }
+}
+
+impl From<Vec<u8>> for Value {
+    fn from(v: Vec<u8>) -> Self {
+        Value::Bytes(v)
+    }
+}
+
+impl From<Vec<f32>> for Value {
+    fn from(v: Vec<f32>) -> Self {
+        Value::Vector(v)
+    }
+}
+
 impl Value {
     pub(crate) fn to_index_key(&self) -> Option<Vec<u8>> {
         match self {

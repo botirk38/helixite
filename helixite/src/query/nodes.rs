@@ -45,7 +45,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
         self
     }
 
-    pub fn where_eq(mut self, property: impl Into<String>, value: Value) -> Self {
+    pub fn eq(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
             .push(PropertyFilter::Eq(property.into(), value));
         self
