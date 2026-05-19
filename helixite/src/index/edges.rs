@@ -88,4 +88,20 @@ impl EdgeIndex {
 
         Ok(())
     }
+
+    pub(crate) fn delete(
+        txn: &mut dyn StorageTxn,
+        from: NodeId,
+        to: NodeId,
+        label: &str,
+        edge_id: EdgeId,
+    ) -> Result<()> {
+        let out_k = Self::out_key(from, label, edge_id);
+        txn.delete(Db::OutEdges, &out_k)?;
+
+        let in_k = Self::in_key(to, label, edge_id);
+        txn.delete(Db::InEdges, &in_k)?;
+
+        Ok(())
+    }
 }

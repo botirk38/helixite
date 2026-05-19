@@ -172,6 +172,75 @@ impl<S: StorageEngine> Helixite<S> {
         EdgeCommand::new(self, id)
     }
 
+    pub fn delete_edge(&self, id: EdgeId) -> Result<()> {
+        let edge = self.get_edge(id)?;
+
+        self.storage.write(|txn| {
+            let registered = PropertyIndexRegistry::load_edges_from_txn(txn)?;
+
+            EdgeIndex::delete(txn, edge.from, edge.to, &edge.label, edge.id)?;
+            EdgePropertyIndexes::delete(txn, &registered, &edge)?;
+            txn.delete(Db::Edges, &edge.id.to_be_bytes())?;
+
+            Ok(())
+        })
+    }
+
+    pub fn delete_node(&self, id: NodeId) -> Result<()> {
+        let node = self.get_node(id)?;
+
+        self.storage.write(|txn| {
+            let node_registry = PropertyIndexRegistry::load_nodes_from_txn(txn)?;
+            let edge_registry = PropertyIndexRegistry::load_edges_from_txn(txn)?;
+
+            let out_prefix = EdgeIndex::out_prefix(id, None);
+            let out_entries = txn.scan_prefix(Db::OutEdges, &out_prefix)?;
+
+            for (key, _) in &out_entries {
+                let Some(edge_id) = EdgeIndex::decode_edge_id(key) else {
+                    continue;
+                };
+                self.delete_edge_from_txn(txn, &edge_registry, edge_id)?;
+            }
+
+            let in_prefix = EdgeIndex::in_prefix(id, None);
+            let in_entries = txn.scan_prefix(Db::InEdges, &in_prefix)?;
+
+            for (key, _) in &in_entries {
+                let Some(edge_id) = EdgeIndex::decode_edge_id(key) else {
+                    continue;
+                };
+                self.delete_edge_from_txn(txn, &edge_registry, edge_id)?;
+            }
+
+            NodeIndexes::delete(txn, &node, &node_registry)?;
+            txn.delete(Db::Nodes, &node.id.to_be_bytes())?;
+
+            Ok(())
+        })
+    }
+
+    fn delete_edge_from_txn(
+        &self,
+        txn: &mut dyn crate::storage::StorageTxn,
+        edge_registry: &PropertyIndexRegistry,
+        edge_id: EdgeId,
+    ) -> Result<()> {
+        let bytes = match txn.get(Db::Edges, &edge_id.to_be_bytes())? {
+            Some(b) => b,
+            None => return Ok(()),
+        };
+
+        let edge: Edge =
+            bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))?;
+
+        EdgeIndex::delete(txn, edge.from, edge.to, &edge.label, edge.id)?;
+        EdgePropertyIndexes::delete(txn, edge_registry, &edge)?;
+        txn.delete(Db::Edges, &edge.id.to_be_bytes())?;
+
+        Ok(())
+    }
+
     pub fn nodes(&self) -> NodeQuery<'_, S> {
         NodeQuery::new(&self.storage)
     }

@@ -259,6 +259,21 @@ impl NodePropertyIndexes {
 
         Ok(())
     }
+
+    pub(crate) fn delete(
+        txn: &mut dyn StorageTxn,
+        registry: &PropertyIndexRegistry,
+        node: &Node,
+    ) -> Result<()> {
+        for (prop_name, value) in &node.properties {
+            if registry.contains(&node.label, prop_name)
+                && let Some(key) = NodePropertyIndex::key(&node.label, prop_name, value, node.id)
+            {
+                txn.delete(Db::Properties, &key)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub(crate) struct EdgePropertyIndexes;
@@ -371,6 +386,21 @@ impl EdgePropertyIndexes {
             }
         }
 
+        Ok(())
+    }
+
+    pub(crate) fn delete(
+        txn: &mut dyn StorageTxn,
+        registry: &PropertyIndexRegistry,
+        edge: &Edge,
+    ) -> Result<()> {
+        for (prop_name, value) in &edge.properties {
+            if registry.contains(&edge.label, prop_name)
+                && let Some(key) = EdgePropertyIndex::key(&edge.label, prop_name, value, edge.id)
+            {
+                txn.delete(Db::Properties, &key)?;
+            }
+        }
         Ok(())
     }
 

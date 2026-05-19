@@ -2,12 +2,14 @@ use std::collections::BTreeMap;
 
 use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
+use crate::node::Node;
 use crate::storage::StorageTxn;
 use crate::storage::engine::Db;
 use crate::value::Value;
 
 use super::labels::LabelIndex;
 use super::properties::NodePropertyIndex;
+use super::properties::NodePropertyIndexes;
 use super::properties::PropertyIndexRegistry;
 use super::vector::VectorIndex;
 
@@ -160,5 +162,26 @@ impl NodeIndexes {
 
     fn is_indexed(registered: &PropertyIndexRegistry, label: &str, property: &str) -> bool {
         registered.contains(label, property)
+    }
+
+    pub(crate) fn delete(
+        txn: &mut dyn StorageTxn,
+        node: &Node,
+        registered_indexes: &PropertyIndexRegistry,
+    ) -> Result<()> {
+        let label_key = LabelIndex::key(&node.label, node.id);
+        txn.delete(Db::Labels, &label_key)?;
+
+        for (prop_name, value) in &node.properties {
+            if matches!(value, Value::Vector(_))
+                && let Ok(meta) = VectorIndex::load_meta_from_txn(txn, &node.label, prop_name)
+            {
+                VectorIndex::delete_from_txn(txn, &node.label, prop_name, node.id, &meta)?;
+            }
+        }
+
+        NodePropertyIndexes::delete(txn, registered_indexes, node)?;
+
+        Ok(())
     }
 }
