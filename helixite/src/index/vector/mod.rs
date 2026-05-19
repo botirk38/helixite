@@ -131,7 +131,7 @@ impl VectorIndex {
     }
 
     pub(crate) fn load_meta_from_txn(
-        txn: &mut dyn crate::storage::StorageTxn,
+        txn: &dyn crate::storage::StorageTxn,
         label: &str,
         property: &str,
     ) -> Result<VectorIndexMeta> {

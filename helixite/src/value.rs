@@ -29,7 +29,13 @@ impl Value {
                 let mut key = Vec::with_capacity(9);
                 key.push(4);
                 let canonical = if *f == 0.0 { 0.0 } else { *f };
-                key.extend(canonical.to_be_bytes());
+                let bits = canonical.to_bits();
+                let ordered = if bits >> 63 == 0 {
+                    bits ^ (1 << 63)
+                } else {
+                    !bits
+                };
+                key.extend(ordered.to_be_bytes());
                 Some(key)
             }
             Value::Bool(b) => Some(vec![2, if *b { 1 } else { 0 }]),
