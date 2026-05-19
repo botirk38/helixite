@@ -131,7 +131,7 @@ impl VectorIndex {
     }
 
     pub(crate) fn load_meta_from_txn(
-        txn: &dyn crate::storage::StorageTxn,
+        txn: &dyn crate::storage::WriteTxn,
         label: &str,
         property: &str,
     ) -> Result<VectorIndexMeta> {
@@ -145,7 +145,7 @@ impl VectorIndex {
     }
 
     pub(crate) fn insert_into_txn(
-        txn: &mut dyn crate::storage::StorageTxn,
+        txn: &mut dyn crate::storage::WriteTxn,
         label: &str,
         property: &str,
         node_id: NodeId,
@@ -162,7 +162,7 @@ impl VectorIndex {
     }
 
     pub(crate) fn delete_from_txn(
-        txn: &mut dyn crate::storage::StorageTxn,
+        txn: &mut dyn crate::storage::WriteTxn,
         label: &str,
         property: &str,
         node_id: NodeId,

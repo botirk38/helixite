@@ -5,8 +5,8 @@ use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
 use crate::storage::StorageEngine;
-use crate::storage::StorageTxn;
 use crate::storage::engine::Db;
+use crate::storage::{ReadTxn as StorageReadTxn, WriteTxn as StorageWriteTxn};
 use crate::value::Value;
 
 use crate::db::Helixite;
@@ -16,15 +16,15 @@ use crate::index::properties::EdgePropertyIndexes;
 use crate::index::properties::PropertyIndexRegistry;
 
 pub struct WriteTxn<'a> {
-    txn: &'a mut dyn StorageTxn,
+    txn: &'a mut dyn StorageWriteTxn,
 }
 
 pub struct ReadTxn<'a> {
-    txn: &'a dyn StorageTxn,
+    txn: &'a dyn StorageReadTxn,
 }
 
 impl<'a> ReadTxn<'a> {
-    pub(crate) fn new(txn: &'a dyn StorageTxn) -> Self {
+    pub(crate) fn new(txn: &'a dyn StorageReadTxn) -> Self {
         Self { txn }
     }
 
@@ -56,7 +56,7 @@ impl<'a> ReadTxn<'a> {
 }
 
 impl<'a> WriteTxn<'a> {
-    pub(crate) fn new(txn: &'a mut dyn StorageTxn) -> Self {
+    pub(crate) fn new(txn: &'a mut dyn StorageWriteTxn) -> Self {
         Self { txn }
     }
 
@@ -250,13 +250,13 @@ fn apply_ops(label: &mut String, properties: &mut BTreeMap<String, Value>, ops: 
 }
 
 pub struct NodeMut<'a> {
-    txn: &'a mut dyn StorageTxn,
+    txn: &'a mut dyn StorageWriteTxn,
     id: NodeId,
     ops: Vec<MutOp>,
 }
 
 impl<'a> NodeMut<'a> {
-    fn new(txn: &'a mut dyn StorageTxn, id: NodeId) -> Self {
+    fn new(txn: &'a mut dyn StorageWriteTxn, id: NodeId) -> Self {
         Self {
             txn,
             id,
@@ -310,13 +310,13 @@ impl<'a> NodeMut<'a> {
 }
 
 pub struct EdgeMut<'a> {
-    txn: &'a mut dyn StorageTxn,
+    txn: &'a mut dyn StorageWriteTxn,
     id: EdgeId,
     ops: Vec<MutOp>,
 }
 
 impl<'a> EdgeMut<'a> {
-    fn new(txn: &'a mut dyn StorageTxn, id: EdgeId) -> Self {
+    fn new(txn: &'a mut dyn StorageWriteTxn, id: EdgeId) -> Self {
         Self {
             txn,
             id,
@@ -373,7 +373,7 @@ impl<'a> EdgeMut<'a> {
 }
 
 fn delete_edge_from_txn(
-    txn: &mut dyn StorageTxn,
+    txn: &mut dyn StorageWriteTxn,
     edge_registry: &PropertyIndexRegistry,
     edge_id: EdgeId,
 ) -> Result<()> {
@@ -392,15 +392,15 @@ fn delete_edge_from_txn(
     Ok(())
 }
 
-fn next_node_id(txn: &mut dyn StorageTxn) -> Result<NodeId> {
+fn next_node_id(txn: &mut dyn StorageWriteTxn) -> Result<NodeId> {
     next_id(txn, b"next_node_id", "next_node_id")
 }
 
-fn next_edge_id(txn: &mut dyn StorageTxn) -> Result<EdgeId> {
+fn next_edge_id(txn: &mut dyn StorageWriteTxn) -> Result<EdgeId> {
     next_id(txn, b"next_edge_id", "next_edge_id")
 }
 
-fn next_id(txn: &mut dyn StorageTxn, key: &[u8], name: &str) -> Result<u64> {
+fn next_id(txn: &mut dyn StorageWriteTxn, key: &[u8], name: &str) -> Result<u64> {
     let bytes = match txn.get(Db::Metadata, key)? {
         Some(b) => b,
         None => {

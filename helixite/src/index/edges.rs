@@ -1,7 +1,7 @@
 use crate::edge::Direction;
 use crate::error::Result;
 use crate::id::{EdgeId, NodeId};
-use crate::storage::StorageTxn;
+use crate::storage::WriteTxn;
 use crate::storage::engine::Db;
 
 use super::codec::{KeyBuilder, KeyReader};
@@ -53,7 +53,7 @@ impl EdgeIndex {
     }
 
     pub(crate) fn insert(
-        txn: &mut dyn StorageTxn,
+        txn: &mut dyn WriteTxn,
         from: NodeId,
         to: NodeId,
         label: &str,
@@ -69,7 +69,7 @@ impl EdgeIndex {
     }
 
     pub(crate) fn replace_label(
-        txn: &mut dyn StorageTxn,
+        txn: &mut dyn WriteTxn,
         from: NodeId,
         to: NodeId,
         old_label: &str,
@@ -90,7 +90,7 @@ impl EdgeIndex {
     }
 
     pub(crate) fn delete(
-        txn: &mut dyn StorageTxn,
+        txn: &mut dyn WriteTxn,
         from: NodeId,
         to: NodeId,
         label: &str,

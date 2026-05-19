@@ -12,7 +12,7 @@ pub(crate) struct Hnsw;
 
 impl Hnsw {
     pub(crate) fn insert_into_txn(
-        txn: &mut dyn crate::storage::StorageTxn,
+        txn: &mut dyn crate::storage::WriteTxn,
         label: &str,
         property: &str,
         node_id: NodeId,
@@ -143,7 +143,7 @@ impl Hnsw {
     }
 
     pub(crate) fn delete_from_txn(
-        txn: &mut dyn crate::storage::StorageTxn,
+        txn: &mut dyn crate::storage::WriteTxn,
         label: &str,
         property: &str,
         node_id: NodeId,
@@ -361,7 +361,7 @@ fn search_layer(
 }
 
 fn search_layer_txn(
-    txn: &mut dyn crate::storage::StorageTxn,
+    txn: &mut dyn crate::storage::WriteTxn,
     entry: NodeId,
     ctx: &SearchCtx<'_>,
 ) -> Result<Vec<NodeId>> {
@@ -418,7 +418,7 @@ fn search_layer_txn(
 }
 
 fn select_neighbors_txn(
-    txn: &mut dyn crate::storage::StorageTxn,
+    txn: &mut dyn crate::storage::WriteTxn,
     label: &str,
     property: &str,
     query: &[f32],
@@ -447,7 +447,7 @@ fn select_neighbors_txn(
 }
 
 fn add_link_txn(
-    txn: &mut dyn crate::storage::StorageTxn,
+    txn: &mut dyn crate::storage::WriteTxn,
     label: &str,
     property: &str,
     level: u8,
@@ -469,7 +469,7 @@ fn add_link_txn(
 }
 
 fn prune_links_txn(
-    txn: &mut dyn crate::storage::StorageTxn,
+    txn: &mut dyn crate::storage::WriteTxn,
     label: &str,
     property: &str,
     node_id: NodeId,
@@ -540,7 +540,7 @@ fn load_neighbors(
 }
 
 fn load_neighbors_txn(
-    txn: &mut dyn crate::storage::StorageTxn,
+    txn: &mut dyn crate::storage::WriteTxn,
     label: &str,
     property: &str,
     level: u8,
@@ -572,7 +572,7 @@ fn load_vector(
 }
 
 fn load_vector_txn(
-    txn: &mut dyn crate::storage::StorageTxn,
+    txn: &mut dyn crate::storage::WriteTxn,
     label: &str,
     property: &str,
     node_id: NodeId,

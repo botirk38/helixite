@@ -4,5 +4,5 @@ pub mod memory;
 
 mod env;
 
-pub use engine::{Db, StorageEngine, StorageTxn};
+pub use engine::{Db, ReadTxn, StorageEngine, WriteTxn};
 pub use memory::MemoryStorage;

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::error::Result;
-use crate::storage::engine::{Db, StorageEngine, StorageTxn};
+use crate::storage::engine::{Db, ReadTxn, StorageEngine, WriteTxn};
 
 type MemoryKey = (Db, Vec<u8>);
 
@@ -59,7 +59,7 @@ impl StorageEngine for MemoryStorage {
 
     fn read<F, T>(&self, f: F) -> Result<T>
     where
-        F: FnOnce(&dyn StorageTxn) -> Result<T>,
+        F: FnOnce(&dyn ReadTxn) -> Result<T>,
     {
         let snapshot = self.data.lock().unwrap().clone();
         let txn = MemoryReadTxn { snapshot };
@@ -68,7 +68,7 @@ impl StorageEngine for MemoryStorage {
 
     fn write<F, T>(&self, f: F) -> Result<T>
     where
-        F: FnOnce(&mut dyn StorageTxn) -> Result<T>,
+        F: FnOnce(&mut dyn WriteTxn) -> Result<T>,
     {
         let snapshot = self.data.lock().unwrap().clone();
         let mut txn = MemoryTxn {
@@ -84,19 +84,9 @@ impl StorageEngine for MemoryStorage {
     }
 }
 
-impl StorageTxn for MemoryTxn<'_> {
+impl ReadTxn for MemoryTxn<'_> {
     fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>> {
         Ok(self.snapshot.get(&(db, key.to_vec())).cloned())
-    }
-
-    fn put(&mut self, db: Db, key: &[u8], value: &[u8]) -> Result<()> {
-        self.snapshot.insert((db, key.to_vec()), value.to_vec());
-        Ok(())
-    }
-
-    fn delete(&mut self, db: Db, key: &[u8]) -> Result<()> {
-        self.snapshot.remove(&(db, key.to_vec()));
-        Ok(())
     }
 
     fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
@@ -118,6 +108,18 @@ impl StorageTxn for MemoryTxn<'_> {
     }
 }
 
+impl WriteTxn for MemoryTxn<'_> {
+    fn put(&mut self, db: Db, key: &[u8], value: &[u8]) -> Result<()> {
+        self.snapshot.insert((db, key.to_vec()), value.to_vec());
+        Ok(())
+    }
+
+    fn delete(&mut self, db: Db, key: &[u8]) -> Result<()> {
+        self.snapshot.remove(&(db, key.to_vec()));
+        Ok(())
+    }
+}
+
 impl Drop for MemoryTxn<'_> {
     fn drop(&mut self) {
         if self.committed {
@@ -133,21 +135,9 @@ struct MemoryReadTxn {
     snapshot: HashMap<MemoryKey, Vec<u8>>,
 }
 
-impl StorageTxn for MemoryReadTxn {
+impl ReadTxn for MemoryReadTxn {
     fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>> {
         Ok(self.snapshot.get(&(db, key.to_vec())).cloned())
-    }
-
-    fn put(&mut self, _db: Db, _key: &[u8], _value: &[u8]) -> Result<()> {
-        Err(crate::error::HelixiteError::Storage(
-            "read-only transaction does not support writes".into(),
-        ))
-    }
-
-    fn delete(&mut self, _db: Db, _key: &[u8]) -> Result<()> {
-        Err(crate::error::HelixiteError::Storage(
-            "read-only transaction does not support deletes".into(),
-        ))
     }
 
     fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {

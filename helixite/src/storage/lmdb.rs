@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::error::{HelixiteError, Result};
-use crate::storage::engine::{Db, StorageEngine, StorageTxn};
+use crate::storage::engine::{Db, ReadTxn, StorageEngine, WriteTxn};
 
 use super::env::open_env;
 
@@ -69,7 +69,7 @@ impl StorageEngine for LmdbStorage {
 
     fn read<F, T>(&self, f: F) -> Result<T>
     where
-        F: FnOnce(&dyn StorageTxn) -> Result<T>,
+        F: FnOnce(&dyn ReadTxn) -> Result<T>,
     {
         let lmdb_txn = LmdbReadTxn::new(self)?;
         f(&lmdb_txn)
@@ -77,7 +77,7 @@ impl StorageEngine for LmdbStorage {
 
     fn write<F, T>(&self, f: F) -> Result<T>
     where
-        F: FnOnce(&mut dyn StorageTxn) -> Result<T>,
+        F: FnOnce(&mut dyn WriteTxn) -> Result<T>,
     {
         let mut lmdb_txn = LmdbTxn::new(self)?;
         let result = f(&mut lmdb_txn);
@@ -125,22 +125,10 @@ impl<'e> LmdbTxn<'e> {
     }
 }
 
-impl StorageTxn for LmdbTxn<'_> {
+impl ReadTxn for LmdbTxn<'_> {
     fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let database = self.database(db);
         Ok(database.get(self.txn()?, key)?.map(|b| b.to_vec()))
-    }
-
-    fn put(&mut self, db: Db, key: &[u8], value: &[u8]) -> Result<()> {
-        let database = self.database(db);
-        database.put(self.txn_mut()?, key, value)?;
-        Ok(())
-    }
-
-    fn delete(&mut self, db: Db, key: &[u8]) -> Result<()> {
-        let database = self.database(db);
-        database.delete(self.txn_mut()?, key)?;
-        Ok(())
     }
 
     fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
@@ -163,6 +151,20 @@ impl StorageTxn for LmdbTxn<'_> {
             results.push((k.to_vec(), v.to_vec()));
         }
         Ok(results)
+    }
+}
+
+impl WriteTxn for LmdbTxn<'_> {
+    fn put(&mut self, db: Db, key: &[u8], value: &[u8]) -> Result<()> {
+        let database = self.database(db);
+        database.put(self.txn_mut()?, key, value)?;
+        Ok(())
+    }
+
+    fn delete(&mut self, db: Db, key: &[u8]) -> Result<()> {
+        let database = self.database(db);
+        database.delete(self.txn_mut()?, key)?;
+        Ok(())
     }
 }
 
@@ -196,22 +198,10 @@ impl<'e> LmdbReadTxn<'e> {
     }
 }
 
-impl StorageTxn for LmdbReadTxn<'_> {
+impl ReadTxn for LmdbReadTxn<'_> {
     fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>> {
         let database = self.database(db);
         Ok(database.get(self.txn(), key)?.map(|b| b.to_vec()))
-    }
-
-    fn put(&mut self, _db: Db, _key: &[u8], _value: &[u8]) -> Result<()> {
-        Err(HelixiteError::Storage(
-            "read-only transaction does not support writes".into(),
-        ))
-    }
-
-    fn delete(&mut self, _db: Db, _key: &[u8]) -> Result<()> {
-        Err(HelixiteError::Storage(
-            "read-only transaction does not support deletes".into(),
-        ))
     }
 
     fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {

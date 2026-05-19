@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::node::Node;
-use crate::storage::StorageTxn;
+use crate::storage::WriteTxn;
 use crate::storage::engine::Db;
 use crate::value::Value;
 
@@ -17,7 +17,7 @@ pub(crate) struct NodeIndexes;
 
 impl NodeIndexes {
     pub(crate) fn validate_from_txn(
-        txn: &dyn StorageTxn,
+        txn: &dyn WriteTxn,
         label: &str,
         properties: &BTreeMap<String, Value>,
     ) -> Result<()> {
@@ -39,7 +39,7 @@ impl NodeIndexes {
     }
 
     pub(crate) fn insert(
-        txn: &mut dyn StorageTxn,
+        txn: &mut dyn WriteTxn,
         label: &str,
         id: NodeId,
         properties: &BTreeMap<String, Value>,
@@ -66,7 +66,7 @@ impl NodeIndexes {
     }
 
     pub(crate) fn replace(
-        txn: &mut dyn StorageTxn,
+        txn: &mut dyn WriteTxn,
         old_label: &str,
         new_label: &str,
         id: NodeId,
@@ -165,7 +165,7 @@ impl NodeIndexes {
     }
 
     pub(crate) fn delete(
-        txn: &mut dyn StorageTxn,
+        txn: &mut dyn WriteTxn,
         node: &Node,
         registered_indexes: &PropertyIndexRegistry,
     ) -> Result<()> {
