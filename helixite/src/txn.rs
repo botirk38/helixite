@@ -224,11 +224,7 @@ macro_rules! impl_mut_builder_methods {
     };
 }
 
-fn apply_ops(
-    label: &mut String,
-    properties: &mut BTreeMap<String, Value>,
-    ops: &[MutOp],
-) {
+fn apply_ops(label: &mut String, properties: &mut BTreeMap<String, Value>, ops: &[MutOp]) {
     for op in ops {
         match op {
             MutOp::SetLabel(l) => *label = l.clone(),
