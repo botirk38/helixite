@@ -313,7 +313,8 @@ fn test_node_label_change_preserves_indexed_property() {
         .create_property("Person", "name")
         .unwrap();
 
-    db.node_mut(id).set_label("Person").apply().unwrap();
+    db.write(|tx| tx.node(id).set_label("Person").apply())
+        .unwrap();
 
     let users = db
         .nodes()
@@ -356,7 +357,8 @@ fn test_node_label_change_with_both_indexes() {
         .create_property("Person", "name")
         .unwrap();
 
-    db.node_mut(id).set_label("Person").apply().unwrap();
+    db.write(|tx| tx.node(id).set_label("Person").apply())
+        .unwrap();
 
     let persons = db
         .nodes()

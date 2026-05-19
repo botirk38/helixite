@@ -16,8 +16,8 @@ use super::vector::VectorIndex;
 pub(crate) struct NodeIndexes;
 
 impl NodeIndexes {
-    pub(crate) fn validate(
-        storage: &impl crate::storage::StorageEngine,
+    pub(crate) fn validate_from_txn(
+        txn: &mut dyn StorageTxn,
         label: &str,
         properties: &BTreeMap<String, Value>,
     ) -> Result<()> {
@@ -25,7 +25,7 @@ impl NodeIndexes {
             let Value::Vector(vector) = prop_value else {
                 continue;
             };
-            let Ok(meta) = VectorIndex::load_meta(storage, label, prop_name) else {
+            let Ok(meta) = VectorIndex::load_meta_from_txn(txn, label, prop_name) else {
                 continue;
             };
             if vector.len() != meta.dimension {
