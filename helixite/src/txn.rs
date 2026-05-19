@@ -15,34 +15,6 @@ use crate::index::nodes::NodeIndexes;
 use crate::index::properties::EdgePropertyIndexes;
 use crate::index::properties::PropertyIndexRegistry;
 
-pub struct ReadTxn<'a> {
-    txn: &'a dyn StorageTxn,
-}
-
-impl<'a> ReadTxn<'a> {
-    pub(crate) fn new(txn: &'a dyn StorageTxn) -> Self {
-        Self { txn }
-    }
-
-    pub fn get_node(&self, id: NodeId) -> Result<Node> {
-        let bytes = self
-            .txn
-            .get(Db::Nodes, &id.to_be_bytes())?
-            .ok_or(HelixiteError::NodeNotFound(id))?;
-
-        bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))
-    }
-
-    pub fn get_edge(&self, id: EdgeId) -> Result<Edge> {
-        let bytes = self
-            .txn
-            .get(Db::Edges, &id.to_be_bytes())?
-            .ok_or(HelixiteError::EdgeNotFound(id))?;
-
-        bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))
-    }
-}
-
 pub struct WriteTxn<'a> {
     txn: &'a mut dyn StorageTxn,
 }

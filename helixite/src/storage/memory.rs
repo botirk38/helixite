@@ -73,15 +73,6 @@ impl StorageEngine for MemoryStorage {
         }
         result
     }
-
-    fn read<F, T>(&self, f: F) -> Result<T>
-    where
-        F: FnOnce(&dyn StorageTxn) -> Result<T>,
-    {
-        let snapshot = self.data.lock().unwrap().clone();
-        let txn = MemoryReadTxn { snapshot };
-        f(&txn)
-    }
 }
 
 impl StorageTxn for MemoryTxn<'_> {
@@ -126,45 +117,5 @@ impl Drop for MemoryTxn<'_> {
                 data.insert(key, value);
             }
         }
-    }
-}
-
-struct MemoryReadTxn {
-    snapshot: HashMap<MemoryKey, Vec<u8>>,
-}
-
-impl StorageTxn for MemoryReadTxn {
-    fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        Ok(self.snapshot.get(&(db, key.to_vec())).cloned())
-    }
-
-    fn put(&mut self, _db: Db, _key: &[u8], _value: &[u8]) -> Result<()> {
-        Err(crate::error::HelixiteError::Storage(
-            "cannot write in a read-only transaction".into(),
-        ))
-    }
-
-    fn delete(&mut self, _db: Db, _key: &[u8]) -> Result<()> {
-        Err(crate::error::HelixiteError::Storage(
-            "cannot write in a read-only transaction".into(),
-        ))
-    }
-
-    fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        Ok(self
-            .snapshot
-            .iter()
-            .filter(|((stored_db, key), _)| *stored_db == db && key.starts_with(prefix))
-            .map(|((_, key), value)| (key.clone(), value.clone()))
-            .collect())
-    }
-
-    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        Ok(self
-            .snapshot
-            .iter()
-            .filter(|((stored_db, _), _)| *stored_db == db)
-            .map(|((_, key), value)| (key.clone(), value.clone()))
-            .collect())
     }
 }

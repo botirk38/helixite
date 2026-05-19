@@ -75,16 +75,4 @@ pub trait StorageEngine: Send + Sync {
     fn write<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&mut dyn StorageTxn) -> Result<T>;
-
-    /// Open a read-only transaction and pass it to the closure.
-    ///
-    /// The default implementation reuses `write`, which is correct but
-    /// unnecessarily acquires a write lock. Backends should override this
-    /// to use a lightweight read transaction (e.g. LMDB `RoTxn`).
-    fn read<F, T>(&self, f: F) -> Result<T>
-    where
-        F: FnOnce(&dyn StorageTxn) -> Result<T>,
-    {
-        self.write(|txn| f(txn))
-    }
 }
