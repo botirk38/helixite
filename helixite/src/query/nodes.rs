@@ -1,6 +1,7 @@
 use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::node::Node;
+use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::engine::Db;
 use crate::value::Value;
@@ -60,17 +61,54 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     }
 
     pub fn collect(self) -> Result<Vec<Node>> {
-        let ordered_ids = self.resolve_ordered_ids()?;
-        self.load_nodes(&ordered_ids)
+        self.storage.read(|txn| {
+            let exec = NodeQueryExec {
+                txn,
+                label: self.label,
+                filters: self.filters,
+                vector_search: self.vector_search,
+            };
+            exec.collect()
+        })
     }
 
     pub fn ids(self) -> Result<Vec<NodeId>> {
-        self.resolve_ordered_ids()
+        self.storage.read(|txn| {
+            let exec = NodeQueryExec {
+                txn,
+                label: self.label,
+                filters: self.filters,
+                vector_search: self.vector_search,
+            };
+            exec.resolve_ordered_ids()
+        })
     }
 
     pub fn count(self) -> Result<usize> {
-        let matching_ids = self.resolve_ordered_ids()?;
-        Ok(matching_ids.len())
+        self.storage.read(|txn| {
+            let exec = NodeQueryExec {
+                txn,
+                label: self.label,
+                filters: self.filters,
+                vector_search: self.vector_search,
+            };
+            let matching_ids = exec.resolve_ordered_ids()?;
+            Ok(matching_ids.len())
+        })
+    }
+}
+
+struct NodeQueryExec<'a> {
+    txn: &'a dyn ReadTxn,
+    label: Option<String>,
+    filters: Vec<PropertyFilter>,
+    vector_search: Option<VectorSearch>,
+}
+
+impl NodeQueryExec<'_> {
+    fn collect(self) -> Result<Vec<Node>> {
+        let ordered_ids = self.resolve_ordered_ids()?;
+        self.load_nodes(&ordered_ids)
     }
 
     fn resolve_ordered_ids(&self) -> Result<Vec<NodeId>> {
@@ -80,14 +118,14 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
                 .as_ref()
                 .ok_or_else(|| HelixiteError::Storage("vector search requires a label".into()))?;
 
-            let meta = VectorIndex::load_meta(self.storage, label, &vs.property)?;
+            let meta = VectorIndex::load_meta_from_txn(self.txn, label, &vs.property)?;
             let search_k = if self.filters.is_empty() {
                 vs.k
             } else {
                 vs.k * 10
             };
-            let mut results = VectorIndex::search(
-                self.storage,
+            let mut results = VectorIndex::search_in_txn(
+                self.txn,
                 label,
                 &vs.property,
                 &vs.query,
@@ -146,7 +184,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
 
     fn is_property_indexed(&self, label: &str, property: &str) -> Result<bool> {
         let key = PropertyIndexMetadata::node_key(label, property);
-        match self.storage.get(Db::Metadata, &key)? {
+        match self.txn.get(Db::Metadata, &key)? {
             Some(_) => Ok(true),
             None => Ok(false),
         }
@@ -162,7 +200,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
             return Ok(Vec::new());
         };
 
-        let entries = self.storage.scan_prefix(Db::Properties, &prefix)?;
+        let entries = self.txn.scan_prefix(Db::Properties, &prefix)?;
         let mut ids = Vec::new();
 
         for (key, _) in entries {
@@ -177,7 +215,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
 
     fn scan_ids_by_label(&self, label: &str) -> Result<Vec<NodeId>> {
         let prefix = LabelIndex::prefix(label);
-        let entries = self.storage.scan_prefix(Db::Labels, &prefix)?;
+        let entries = self.txn.scan_prefix(Db::Labels, &prefix)?;
         let mut ids = Vec::new();
 
         for (key, _) in entries {
@@ -191,7 +229,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     }
 
     fn scan_all_node_ids(&self) -> Result<Vec<NodeId>> {
-        let entries = self.storage.scan_prefix(Db::Nodes, &[])?;
+        let entries = self.txn.scan_prefix(Db::Nodes, &[])?;
         let mut ids = Vec::new();
 
         for (key, _) in entries {
@@ -227,7 +265,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
         let mut nodes = Vec::with_capacity(ids.len());
         for id in ids {
             let bytes = self
-                .storage
+                .txn
                 .get(Db::Nodes, &id.to_be_bytes())?
                 .ok_or(HelixiteError::NodeNotFound(*id))?;
             let node: Node =

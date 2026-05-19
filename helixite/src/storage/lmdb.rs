@@ -37,36 +37,6 @@ impl LmdbStorage {
 }
 
 impl StorageEngine for LmdbStorage {
-    fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let rtxn = self.env.read_txn()?;
-        let database = self.database(db);
-        Ok(database.get(&rtxn, key)?.map(|b| b.to_vec()))
-    }
-
-    fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        let rtxn = self.env.read_txn()?;
-        let database = self.database(db);
-        let iter = database.prefix_iter(&rtxn, prefix)?;
-        let mut results = Vec::new();
-        for entry in iter {
-            let (k, v) = entry?;
-            results.push((k.to_vec(), v.to_vec()));
-        }
-        Ok(results)
-    }
-
-    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        let rtxn = self.env.read_txn()?;
-        let database = self.database(db);
-        let iter = database.iter(&rtxn)?;
-        let mut results = Vec::new();
-        for entry in iter {
-            let (k, v) = entry?;
-            results.push((k.to_vec(), v.to_vec()));
-        }
-        Ok(results)
-    }
-
     fn read<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&dyn ReadTxn) -> Result<T>,

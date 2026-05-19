@@ -41,7 +41,7 @@ fn test_memory_txn_get_put() {
         })
         .unwrap();
 
-    let result = storage.get(Db::Nodes, &[1]).unwrap();
+    let result = storage.read(|txn| txn.get(Db::Nodes, &[1])).unwrap();
     assert_eq!(result, Some(b"node_data".to_vec()));
 }
 
@@ -56,7 +56,7 @@ fn test_memory_txn_delete() {
         })
         .unwrap();
 
-    let result = storage.get(Db::Nodes, &[1]).unwrap();
+    let result = storage.read(|txn| txn.get(Db::Nodes, &[1])).unwrap();
     assert_eq!(result, None);
 }
 
@@ -72,7 +72,9 @@ fn test_memory_txn_scan_prefix() {
         })
         .unwrap();
 
-    let results = storage.scan_prefix(Db::Nodes, &[1]).unwrap();
+    let results = storage
+        .read(|txn| txn.scan_prefix(Db::Nodes, &[1]))
+        .unwrap();
     assert_eq!(results.len(), 2);
 }
 
@@ -84,6 +86,6 @@ fn test_memory_txn_write_aborts_on_error() {
         Err::<(), _>(helixite::HelixiteError::Storage("abort".into()))
     });
 
-    let result = storage.get(Db::Nodes, &[1]).unwrap();
+    let result = storage.read(|txn| txn.get(Db::Nodes, &[1])).unwrap();
     assert_eq!(result, None);
 }

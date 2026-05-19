@@ -6,6 +6,7 @@ use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::storage::StorageEngine;
 use crate::storage::engine::Db;
+use crate::storage::{ReadTxn, WriteTxn};
 
 pub use similarity::SimilarityFn;
 pub use similarity::SimilarityKind;
@@ -121,17 +122,19 @@ impl VectorIndex {
         label: &str,
         property: &str,
     ) -> Result<VectorIndexMeta> {
-        let bytes = storage
-            .get(Db::VectorIndexes, &keys::meta_key(label, property))?
-            .ok_or_else(|| HelixiteError::VectorIndexNotFound {
-                label: label.into(),
-                property: property.into(),
-            })?;
-        VectorIndexMeta::deserialize(&bytes)
+        storage.read(|txn| {
+            let bytes = txn
+                .get(Db::VectorIndexes, &keys::meta_key(label, property))?
+                .ok_or_else(|| HelixiteError::VectorIndexNotFound {
+                    label: label.into(),
+                    property: property.into(),
+                })?;
+            VectorIndexMeta::deserialize(&bytes)
+        })
     }
 
     pub(crate) fn load_meta_from_txn(
-        txn: &dyn crate::storage::WriteTxn,
+        txn: &dyn ReadTxn,
         label: &str,
         property: &str,
     ) -> Result<VectorIndexMeta> {
@@ -145,7 +148,7 @@ impl VectorIndex {
     }
 
     pub(crate) fn insert_into_txn(
-        txn: &mut dyn crate::storage::WriteTxn,
+        txn: &mut dyn WriteTxn,
         label: &str,
         property: &str,
         node_id: NodeId,
@@ -162,7 +165,7 @@ impl VectorIndex {
     }
 
     pub(crate) fn delete_from_txn(
-        txn: &mut dyn crate::storage::WriteTxn,
+        txn: &mut dyn WriteTxn,
         label: &str,
         property: &str,
         node_id: NodeId,
@@ -185,6 +188,23 @@ impl VectorIndex {
                 actual: query.len(),
             });
         }
-        Hnsw::search(storage, label, property, query, k, meta)
+        storage.read(|txn| Hnsw::search_in_txn(txn, label, property, query, k, meta))
+    }
+
+    pub(crate) fn search_in_txn(
+        txn: &dyn ReadTxn,
+        label: &str,
+        property: &str,
+        query: &[f32],
+        k: usize,
+        meta: &VectorIndexMeta,
+    ) -> Result<Vec<(NodeId, f32)>> {
+        if query.len() != meta.dimension {
+            return Err(HelixiteError::InvalidVectorDim {
+                expected: meta.dimension,
+                actual: query.len(),
+            });
+        }
+        Hnsw::search_in_txn(txn, label, property, query, k, meta)
     }
 }

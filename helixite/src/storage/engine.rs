@@ -56,8 +56,7 @@ pub trait ReadTxn {
 
 /// Abstract read-write transaction over any logical database.
 ///
-/// Extends `ReadTxn` with mutation operations. Implementations must ensure
-/// that mutations are only applied when the underlying backend supports them.
+/// Extends `ReadTxn` with mutation operations.
 pub trait WriteTxn: ReadTxn {
     fn put(&mut self, db: Db, key: &[u8], value: &[u8]) -> Result<()>;
     fn delete(&mut self, db: Db, key: &[u8]) -> Result<()>;
@@ -66,6 +65,8 @@ pub trait WriteTxn: ReadTxn {
 /// Abstract storage engine for pluggable backends.
 ///
 /// # Transaction model
+///
+/// All storage access happens inside a transaction.
 ///
 /// `read` accepts a closure `FnOnce(&dyn ReadTxn) -> Result<T>`.
 /// The engine opens a read transaction, passes it to the closure, and
@@ -76,9 +77,6 @@ pub trait WriteTxn: ReadTxn {
 /// commits only if the closure returns `Ok`. If the closure returns `Err`,
 /// the transaction is aborted automatically.
 pub trait StorageEngine: Send + Sync {
-    fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>>;
-    fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
-    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
     fn read<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&dyn ReadTxn) -> Result<T>;

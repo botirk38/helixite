@@ -76,12 +76,7 @@ impl<S: StorageEngine> Helixite<S> {
     }
 
     pub fn get_node(&self, id: NodeId) -> Result<Node> {
-        let bytes = self
-            .storage
-            .get(crate::storage::engine::Db::Nodes, &id.to_be_bytes())?
-            .ok_or(crate::error::HelixiteError::NodeNotFound(id))?;
-
-        bincode::deserialize(&bytes).map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))
+        self.read(|tx| tx.get_node(id))
     }
 
     pub fn add_edge(
@@ -94,13 +89,8 @@ impl<S: StorageEngine> Helixite<S> {
         self.write(|tx| tx.add_edge(from, to, label, properties))
     }
 
-    pub fn get_edge(&self, id: EdgeId) -> Result<crate::edge::Edge> {
-        let bytes = self
-            .storage
-            .get(crate::storage::engine::Db::Edges, &id.to_be_bytes())?
-            .ok_or(crate::error::HelixiteError::EdgeNotFound(id))?;
-
-        bincode::deserialize(&bytes).map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))
+    pub fn get_edge(&self, id: EdgeId) -> Result<Edge> {
+        self.read(|tx| tx.get_edge(id))
     }
 
     pub fn delete_edge(&self, id: EdgeId) -> Result<()> {

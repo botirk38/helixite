@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::node::Node;
+use crate::storage::ReadTxn;
 use crate::storage::WriteTxn;
 use crate::storage::engine::Db;
 use crate::value::Value;
@@ -17,7 +18,7 @@ pub(crate) struct NodeIndexes;
 
 impl NodeIndexes {
     pub(crate) fn validate_from_txn(
-        txn: &dyn WriteTxn,
+        txn: &dyn ReadTxn,
         label: &str,
         properties: &BTreeMap<String, Value>,
     ) -> Result<()> {

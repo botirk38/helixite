@@ -5,6 +5,7 @@ use crate::edge::Edge;
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
+use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::WriteTxn;
 use crate::storage::engine::Db;
@@ -152,15 +153,15 @@ impl PropertyIndexRegistry {
             .is_some_and(|props| props.contains(property))
     }
 
-    pub(crate) fn load_nodes_from_txn(txn: &dyn WriteTxn) -> crate::error::Result<Self> {
+    pub(crate) fn load_nodes_from_txn(txn: &dyn ReadTxn) -> crate::error::Result<Self> {
         Self::load_from_txn(txn, PropertyIndexMetadata::node_prefix())
     }
 
-    pub(crate) fn load_edges_from_txn(txn: &dyn WriteTxn) -> crate::error::Result<Self> {
+    pub(crate) fn load_edges_from_txn(txn: &dyn ReadTxn) -> crate::error::Result<Self> {
         Self::load_from_txn(txn, PropertyIndexMetadata::edge_prefix())
     }
 
-    fn load_from_txn(txn: &dyn WriteTxn, prefix: Vec<u8>) -> crate::error::Result<Self> {
+    fn load_from_txn(txn: &dyn ReadTxn, prefix: Vec<u8>) -> crate::error::Result<Self> {
         let entries = txn.scan_prefix(Db::Metadata, &prefix)?;
 
         let mut indexes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -220,7 +221,7 @@ impl NodePropertyIndexes {
         })
     }
 
-    fn label_exists(txn: &mut dyn WriteTxn, label: &str) -> Result<bool> {
+    fn label_exists(txn: &dyn ReadTxn, label: &str) -> Result<bool> {
         let prefix = LabelIndex::prefix(label);
         let entries = txn.scan_prefix(Db::Labels, &prefix)?;
         Ok(!entries.is_empty())
@@ -404,7 +405,7 @@ impl EdgePropertyIndexes {
         Ok(())
     }
 
-    fn label_exists(txn: &mut dyn WriteTxn, label: &str) -> Result<bool> {
+    fn label_exists(txn: &dyn ReadTxn, label: &str) -> Result<bool> {
         let entries = txn.iter_all(Db::Edges)?;
         for (_, value) in entries {
             if let Ok(edge) = bincode::deserialize::<Edge>(&value)
