@@ -185,3 +185,19 @@ pub(crate) fn decode_node_id_from_vec_key(key: &[u8]) -> Option<NodeId> {
     reader.finish()?;
     Some(id)
 }
+
+pub(crate) fn lvl_prefix(label: &str, property: &str) -> Vec<u8> {
+    KeyBuilder::new()
+        .u8(LVL_PREFIX)
+        .str(label)
+        .str(property)
+        .finish()
+}
+
+pub(crate) fn lnk_index_prefix(label: &str, property: &str) -> Vec<u8> {
+    KeyBuilder::new()
+        .u8(LNK_PREFIX)
+        .str(label)
+        .str(property)
+        .finish()
+}

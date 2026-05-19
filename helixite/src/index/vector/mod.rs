@@ -4,9 +4,11 @@ mod similarity;
 
 use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
+use crate::node::Node;
 use crate::storage::StorageEngine;
 use crate::storage::engine::Db;
 use crate::storage::{ReadTxn, WriteTxn};
+use crate::value::Value;
 
 pub use similarity::SimilarityFn;
 pub use similarity::SimilarityKind;
@@ -98,21 +100,104 @@ impl VectorIndex {
                 "custom similarity cannot be used with persisted indexes".into(),
             ));
         }
-        let meta = VectorIndexMeta {
-            dimension,
-            m: config.m,
-            ef_construction: config.ef_construction,
-            ef_search: config.ef_search,
-            similarity: config.similarity,
-            entry_point: None,
-            max_level: 0,
-        };
         storage.write(|txn| {
+            if txn
+                .get(Db::VectorIndexes, &keys::meta_key(label, property))?
+                .is_some()
+            {
+                return Err(HelixiteError::DuplicateKey(format!(
+                    "vector index {label}::{property} already exists"
+                )));
+            }
+
+            let meta = VectorIndexMeta {
+                dimension,
+                m: config.m,
+                ef_construction: config.ef_construction,
+                ef_search: config.ef_search,
+                similarity: config.similarity,
+                entry_point: None,
+                max_level: 0,
+            };
             txn.put(
                 Db::VectorIndexes,
                 &keys::meta_key(label, property),
                 &meta.serialize(),
             )?;
+
+            Self::backfill(txn, label, property)?;
+
+            Ok(())
+        })
+    }
+
+    fn backfill(txn: &mut dyn WriteTxn, label: &str, property: &str) -> Result<()> {
+        let prefix = crate::index::labels::LabelIndex::prefix(label);
+        let entries = txn.scan_prefix(Db::Labels, &prefix)?;
+
+        for (key, _) in entries {
+            let Some(node_id) = crate::index::labels::LabelIndex::decode_node_id(&key) else {
+                continue;
+            };
+
+            let Some(node_bytes) = txn.get(Db::Nodes, &node_id.to_be_bytes())? else {
+                continue;
+            };
+
+            let node: Node = bincode::deserialize(&node_bytes)
+                .map_err(|e| HelixiteError::Codec(e.to_string()))?;
+
+            if node.label != label {
+                continue;
+            }
+
+            let Some(value) = node.properties.get(property) else {
+                continue;
+            };
+
+            let Value::Vector(vector) = value else {
+                continue;
+            };
+
+            let meta = Self::load_meta(txn, label, property)?;
+            Self::insert(txn, label, property, node_id, vector, &meta)?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn drop(storage: &impl StorageEngine, label: &str, property: &str) -> Result<()> {
+        storage.write(|txn| {
+            if txn
+                .get(Db::VectorIndexes, &keys::meta_key(label, property))?
+                .is_none()
+            {
+                return Err(HelixiteError::IndexNotFound(format!(
+                    "vector index {label}::{property}"
+                )));
+            }
+
+            let vec_prefix = keys::vec_prefix(label, property);
+            let vec_entries = txn.scan_prefix(Db::VectorIndexes, &vec_prefix)?;
+            for (key, _) in vec_entries {
+                txn.delete(Db::VectorIndexes, &key)?;
+            }
+
+            let lvl_prefix = keys::lvl_prefix(label, property);
+            let lvl_entries = txn.scan_prefix(Db::VectorIndexes, &lvl_prefix)?;
+            for (key, _) in lvl_entries {
+                txn.delete(Db::VectorIndexes, &key)?;
+            }
+
+            let lnk_prefix = keys::lnk_index_prefix(label, property);
+            let lnk_entries = txn.scan_prefix(Db::VectorIndexes, &lnk_prefix)?;
+            for (key, _) in lnk_entries {
+                txn.delete(Db::VectorIndexes, &key)?;
+            }
+
+            txn.delete(Db::VectorIndexes, &keys::meta_key(label, property))?;
+            txn.delete(Db::VectorIndexes, &keys::ep_key(label, property))?;
+
             Ok(())
         })
     }
