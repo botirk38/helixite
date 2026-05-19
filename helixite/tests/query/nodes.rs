@@ -77,7 +77,7 @@ fn test_nodes_by_property() {
     let alices = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Alice".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
         .collect()
         .unwrap();
     assert_eq!(alices.len(), 2);
@@ -85,7 +85,7 @@ fn test_nodes_by_property() {
     let bob = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Bob".to_string()))
+        .eq("name", Value::String("Bob".to_string()))
         .collect()
         .unwrap();
     assert_eq!(bob.len(), 1);
@@ -123,7 +123,7 @@ fn test_nodes_by_property_with_label() {
     let users = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Alice".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
         .collect()
         .unwrap();
     assert_eq!(users.len(), 1);
@@ -132,7 +132,7 @@ fn test_nodes_by_property_with_label() {
     let posts = db
         .nodes()
         .label("Post")
-        .where_eq("name", Value::String("Alice".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
         .collect()
         .unwrap();
     assert_eq!(posts.len(), 1);
@@ -215,8 +215,8 @@ fn test_multi_index_intersection() {
     let result = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Alice".to_string()))
-        .where_eq("age", Value::Int(30))
+        .eq("name", Value::String("Alice".to_string()))
+        .eq("age", Value::Int(30))
         .collect()
         .unwrap();
     assert_eq!(result.len(), 1);
@@ -228,8 +228,8 @@ fn test_multi_index_intersection() {
     let result = db
         .nodes()
         .label("User")
-        .where_eq("age", Value::Int(30))
-        .where_eq("city", Value::String("NYC".to_string()))
+        .eq("age", Value::Int(30))
+        .eq("city", Value::String("NYC".to_string()))
         .collect()
         .unwrap();
     assert_eq!(result.len(), 2);
@@ -237,9 +237,9 @@ fn test_multi_index_intersection() {
     let result = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Alice".to_string()))
-        .where_eq("age", Value::Int(30))
-        .where_eq("city", Value::String("NYC".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
+        .eq("age", Value::Int(30))
+        .eq("city", Value::String("NYC".to_string()))
         .collect()
         .unwrap();
     assert_eq!(result.len(), 1);
@@ -247,8 +247,8 @@ fn test_multi_index_intersection() {
     let result = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Alice".to_string()))
-        .where_eq("age", Value::Int(99))
+        .eq("name", Value::String("Alice".to_string()))
+        .eq("age", Value::Int(99))
         .collect()
         .unwrap();
     assert_eq!(result.len(), 0);
@@ -284,7 +284,7 @@ fn test_nodes_property_persists_after_reopen() {
     let alices = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Alice".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
         .collect()
         .unwrap();
     assert_eq!(alices.len(), 1);
@@ -319,7 +319,7 @@ fn test_node_label_change_preserves_indexed_property() {
     let users = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Alice".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
         .collect()
         .unwrap();
     assert!(users.is_empty());
@@ -327,7 +327,7 @@ fn test_node_label_change_preserves_indexed_property() {
     let persons = db
         .nodes()
         .label("Person")
-        .where_eq("name", Value::String("Alice".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
         .collect()
         .unwrap();
     assert_eq!(persons.len(), 1);
@@ -363,7 +363,7 @@ fn test_node_label_change_with_both_indexes() {
     let persons = db
         .nodes()
         .label("Person")
-        .where_eq("name", Value::String("Alice".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
         .count()
         .unwrap();
     assert_eq!(persons, 1);
@@ -371,7 +371,7 @@ fn test_node_label_change_with_both_indexes() {
     let users = db
         .nodes()
         .label("User")
-        .where_eq("name", Value::String("Alice".to_string()))
+        .eq("name", Value::String("Alice".to_string()))
         .count()
         .unwrap();
     assert_eq!(users, 0);
@@ -397,7 +397,7 @@ fn test_float_negative_zero_indexed_as_positive_zero() {
     let results = db
         .nodes()
         .label("Measurement")
-        .where_eq("value", Value::Float(0.0))
+        .eq("value", Value::Float(0.0))
         .collect()
         .unwrap();
     assert_eq!(results.len(), 1);

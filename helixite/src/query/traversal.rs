@@ -36,7 +36,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
         Self { storage, node_id }
     }
 
-    pub fn out(self, label: impl Into<String>) -> TraversalQuery<'a, S> {
+    pub fn outgoing(self, label: impl Into<String>) -> TraversalQuery<'a, S> {
         TraversalQuery {
             storage: self.storage,
             node_id: self.node_id,
@@ -46,7 +46,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
         }
     }
 
-    pub fn in_(self, label: impl Into<String>) -> TraversalQuery<'a, S> {
+    pub fn incoming(self, label: impl Into<String>) -> TraversalQuery<'a, S> {
         TraversalQuery {
             storage: self.storage,
             node_id: self.node_id,
@@ -56,7 +56,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
         }
     }
 
-    pub fn out_any(self) -> TraversalQuery<'a, S> {
+    pub fn outgoing_any(self) -> TraversalQuery<'a, S> {
         TraversalQuery {
             storage: self.storage,
             node_id: self.node_id,
@@ -66,7 +66,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
         }
     }
 
-    pub fn in_any(self) -> TraversalQuery<'a, S> {
+    pub fn incoming_any(self) -> TraversalQuery<'a, S> {
         TraversalQuery {
             storage: self.storage,
             node_id: self.node_id,
@@ -78,13 +78,13 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
 }
 
 impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
-    pub fn where_eq(mut self, property: impl Into<String>, value: Value) -> Self {
+    pub fn eq(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
             .push(EdgePropertyFilter::Eq(property.into(), value));
         self
     }
 
-    pub fn collect_edges(self) -> Result<Vec<Edge>> {
+    pub fn edges(self) -> Result<Vec<Edge>> {
         self.storage.read(|txn| {
             let exec = TraversalExec {
                 txn,
@@ -97,7 +97,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
         })
     }
 
-    pub fn collect_nodes(self) -> Result<Vec<Node>> {
+    pub fn nodes(self) -> Result<Vec<Node>> {
         self.storage.read(|txn| {
             let exec = TraversalExec {
                 txn,

@@ -129,11 +129,11 @@ impl<S: StorageEngine> Helixite<S> {
         self.read(|tx| tx.get_edges(ids))
     }
 
-    pub fn node_mut(&self, id: NodeId) -> NodeMutBuilder<'_, S> {
+    pub fn update_node(&self, id: NodeId) -> NodeMutBuilder<'_, S> {
         NodeMutBuilder::new(self, id)
     }
 
-    pub fn edge_mut(&self, id: EdgeId) -> EdgeMutBuilder<'_, S> {
+    pub fn update_edge(&self, id: EdgeId) -> EdgeMutBuilder<'_, S> {
         EdgeMutBuilder::new(self, id)
     }
 

@@ -23,7 +23,7 @@ fn test_read_txn_snapshot_consistency() {
             let node = tx.get_node(id)?;
             let name = node.properties.get("name").cloned();
 
-            db.node_mut(id)
+            db.update_node(id)
                 .set_property("name", Value::String("Bob".into()))
                 .apply()
                 .unwrap();
