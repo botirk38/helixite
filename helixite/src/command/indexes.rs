@@ -55,6 +55,10 @@ impl<'a, S: StorageEngine> VectorIndexManager<'a, S> {
     ) -> Result<()> {
         VectorIndex::create(self.storage, label, property, dimension, config)
     }
+
+    pub fn drop(&self, label: &str, property: &str) -> Result<()> {
+        VectorIndex::drop(self.storage, label, property)
+    }
 }
 
 impl<'a, S: StorageEngine> NodeIndexManager<'a, S> {
