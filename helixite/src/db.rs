@@ -10,7 +10,7 @@ use crate::storage::lmdb::LmdbStorage;
 use crate::value::Value;
 
 use crate::command::IndexManager;
-use crate::txn::{EdgeMutBuilder, NodeMutBuilder, WriteTxn};
+use crate::txn::{EdgeMutBuilder, NodeMutBuilder, ReadTxn, WriteTxn};
 
 pub struct Helixite<S: StorageEngine = LmdbStorage> {
     path: PathBuf,
@@ -117,6 +117,16 @@ impl<S: StorageEngine> Helixite<S> {
         self.storage.write(|txn| {
             let mut tx = WriteTxn::new(txn);
             f(&mut tx)
+        })
+    }
+
+    pub fn read<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&ReadTxn<'_>) -> Result<T>,
+    {
+        self.storage.read(|txn| {
+            let rtx = ReadTxn::new(txn);
+            f(&rtx)
         })
     }
 

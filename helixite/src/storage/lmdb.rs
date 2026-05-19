@@ -1,5 +1,5 @@
 use heed::types::Bytes;
-use heed::{Database, Env, RwTxn};
+use heed::{Database, Env, RoTxn, RwTxn};
 use std::path::Path;
 
 use crate::config::Config;
@@ -77,6 +77,14 @@ impl StorageEngine for LmdbStorage {
             lmdb_txn.commit()?;
         }
         result
+    }
+
+    fn read<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&dyn StorageTxn) -> Result<T>,
+    {
+        let rtxn = LmdbReadTxn::new(self)?;
+        f(&rtxn)
     }
 }
 
@@ -163,5 +171,64 @@ impl Drop for LmdbTxn<'_> {
         if let Some(txn) = self.txn.take() {
             txn.abort();
         }
+    }
+}
+
+struct LmdbReadTxn<'e> {
+    storage: &'e LmdbStorage,
+    txn: RoTxn<'e>,
+}
+
+impl<'e> LmdbReadTxn<'e> {
+    fn new(storage: &'e LmdbStorage) -> Result<Self> {
+        Ok(Self {
+            storage,
+            txn: storage.env.read_txn()?,
+        })
+    }
+
+    fn database(&self, db: Db) -> Database<Bytes, Bytes> {
+        self.storage.database(db)
+    }
+}
+
+impl StorageTxn for LmdbReadTxn<'_> {
+    fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        let database = self.database(db);
+        Ok(database.get(&self.txn, key)?.map(|b| b.to_vec()))
+    }
+
+    fn put(&mut self, _db: Db, _key: &[u8], _value: &[u8]) -> Result<()> {
+        Err(HelixiteError::Storage(
+            "cannot write in a read-only transaction".into(),
+        ))
+    }
+
+    fn delete(&mut self, _db: Db, _key: &[u8]) -> Result<()> {
+        Err(HelixiteError::Storage(
+            "cannot write in a read-only transaction".into(),
+        ))
+    }
+
+    fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let database = self.database(db);
+        let iter = database.prefix_iter(&self.txn, prefix)?;
+        let mut results = Vec::new();
+        for entry in iter {
+            let (k, v) = entry?;
+            results.push((k.to_vec(), v.to_vec()));
+        }
+        Ok(results)
+    }
+
+    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let database = self.database(db);
+        let iter = database.iter(&self.txn)?;
+        let mut results = Vec::new();
+        for entry in iter {
+            let (k, v) = entry?;
+            results.push((k.to_vec(), v.to_vec()));
+        }
+        Ok(results)
     }
 }

@@ -15,6 +15,34 @@ use crate::index::nodes::NodeIndexes;
 use crate::index::properties::EdgePropertyIndexes;
 use crate::index::properties::PropertyIndexRegistry;
 
+pub struct ReadTxn<'a> {
+    txn: &'a dyn StorageTxn,
+}
+
+impl<'a> ReadTxn<'a> {
+    pub(crate) fn new(txn: &'a dyn StorageTxn) -> Self {
+        Self { txn }
+    }
+
+    pub fn get_node(&self, id: NodeId) -> Result<Node> {
+        let bytes = self
+            .txn
+            .get(Db::Nodes, &id.to_be_bytes())?
+            .ok_or(HelixiteError::NodeNotFound(id))?;
+
+        bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))
+    }
+
+    pub fn get_edge(&self, id: EdgeId) -> Result<Edge> {
+        let bytes = self
+            .txn
+            .get(Db::Edges, &id.to_be_bytes())?
+            .ok_or(HelixiteError::EdgeNotFound(id))?;
+
+        bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))
+    }
+}
+
 pub struct WriteTxn<'a> {
     txn: &'a mut dyn StorageTxn,
 }
@@ -100,6 +128,13 @@ impl<'a> WriteTxn<'a> {
         label: impl Into<String>,
         properties: impl IntoIterator<Item = (String, Value)>,
     ) -> Result<EdgeId> {
+        if self.txn.get(Db::Nodes, &from.to_be_bytes())?.is_none() {
+            return Err(HelixiteError::NodeNotFound(from));
+        }
+        if self.txn.get(Db::Nodes, &to.to_be_bytes())?.is_none() {
+            return Err(HelixiteError::NodeNotFound(to));
+        }
+
         let label = label.into();
         let properties: BTreeMap<String, Value> = properties.into_iter().collect();
 
@@ -154,17 +189,66 @@ impl<'a> WriteTxn<'a> {
     }
 }
 
-pub struct NodeMut<'a> {
-    txn: &'a mut dyn StorageTxn,
-    id: NodeId,
-    ops: Vec<NodeOp>,
-}
-
-enum NodeOp {
+enum MutOp {
     SetLabel(String),
     SetProperty(String, Value),
     RemoveProperty(String),
     ReplaceProperties(BTreeMap<String, Value>),
+}
+
+macro_rules! impl_mut_builder_methods {
+    () => {
+        pub fn set_label(mut self, label: impl Into<String>) -> Self {
+            self.ops.push(MutOp::SetLabel(label.into()));
+            self
+        }
+
+        pub fn set_property(mut self, key: impl Into<String>, value: Value) -> Self {
+            self.ops.push(MutOp::SetProperty(key.into(), value));
+            self
+        }
+
+        pub fn remove_property(mut self, key: impl Into<String>) -> Self {
+            self.ops.push(MutOp::RemoveProperty(key.into()));
+            self
+        }
+
+        pub fn replace_properties(
+            mut self,
+            properties: impl IntoIterator<Item = (String, Value)>,
+        ) -> Self {
+            let props: BTreeMap<String, Value> = properties.into_iter().collect();
+            self.ops.push(MutOp::ReplaceProperties(props));
+            self
+        }
+    };
+}
+
+fn apply_ops(
+    label: &mut String,
+    properties: &mut BTreeMap<String, Value>,
+    ops: &[MutOp],
+) {
+    for op in ops {
+        match op {
+            MutOp::SetLabel(l) => *label = l.clone(),
+            MutOp::SetProperty(k, v) => {
+                properties.insert(k.clone(), v.clone());
+            }
+            MutOp::RemoveProperty(k) => {
+                properties.remove(k);
+            }
+            MutOp::ReplaceProperties(props) => {
+                *properties = props.clone();
+            }
+        }
+    }
+}
+
+pub struct NodeMut<'a> {
+    txn: &'a mut dyn StorageTxn,
+    id: NodeId,
+    ops: Vec<MutOp>,
 }
 
 impl<'a> NodeMut<'a> {
@@ -176,29 +260,7 @@ impl<'a> NodeMut<'a> {
         }
     }
 
-    pub fn set_label(mut self, label: impl Into<String>) -> Self {
-        self.ops.push(NodeOp::SetLabel(label.into()));
-        self
-    }
-
-    pub fn set_property(mut self, key: impl Into<String>, value: Value) -> Self {
-        self.ops.push(NodeOp::SetProperty(key.into(), value));
-        self
-    }
-
-    pub fn remove_property(mut self, key: impl Into<String>) -> Self {
-        self.ops.push(NodeOp::RemoveProperty(key.into()));
-        self
-    }
-
-    pub fn replace_properties(
-        mut self,
-        properties: impl IntoIterator<Item = (String, Value)>,
-    ) -> Self {
-        let props: BTreeMap<String, Value> = properties.into_iter().collect();
-        self.ops.push(NodeOp::ReplaceProperties(props));
-        self
-    }
+    impl_mut_builder_methods!();
 
     pub fn apply(self) -> Result<()> {
         let current_bytes = self
@@ -211,21 +273,7 @@ impl<'a> NodeMut<'a> {
 
         let mut label = current.label.clone();
         let mut properties = current.properties.clone();
-
-        for op in &self.ops {
-            match op {
-                NodeOp::SetLabel(l) => label = l.clone(),
-                NodeOp::SetProperty(k, v) => {
-                    properties.insert(k.clone(), v.clone());
-                }
-                NodeOp::RemoveProperty(k) => {
-                    properties.remove(k);
-                }
-                NodeOp::ReplaceProperties(props) => {
-                    properties = props.clone();
-                }
-            }
-        }
+        apply_ops(&mut label, &mut properties, &self.ops);
 
         NodeIndexes::validate_from_txn(self.txn, &label, &properties)?;
 
@@ -245,8 +293,8 @@ impl<'a> NodeMut<'a> {
 
         let updated = Node {
             id: self.id,
-            label: label.clone(),
-            properties: properties.clone(),
+            label,
+            properties,
         };
 
         let bytes =
@@ -260,14 +308,7 @@ impl<'a> NodeMut<'a> {
 pub struct EdgeMut<'a> {
     txn: &'a mut dyn StorageTxn,
     id: EdgeId,
-    ops: Vec<EdgeOp>,
-}
-
-enum EdgeOp {
-    SetLabel(String),
-    SetProperty(String, Value),
-    RemoveProperty(String),
-    ReplaceProperties(BTreeMap<String, Value>),
+    ops: Vec<MutOp>,
 }
 
 impl<'a> EdgeMut<'a> {
@@ -279,29 +320,7 @@ impl<'a> EdgeMut<'a> {
         }
     }
 
-    pub fn set_label(mut self, label: impl Into<String>) -> Self {
-        self.ops.push(EdgeOp::SetLabel(label.into()));
-        self
-    }
-
-    pub fn set_property(mut self, key: impl Into<String>, value: Value) -> Self {
-        self.ops.push(EdgeOp::SetProperty(key.into(), value));
-        self
-    }
-
-    pub fn remove_property(mut self, key: impl Into<String>) -> Self {
-        self.ops.push(EdgeOp::RemoveProperty(key.into()));
-        self
-    }
-
-    pub fn replace_properties(
-        mut self,
-        properties: impl IntoIterator<Item = (String, Value)>,
-    ) -> Self {
-        let props: BTreeMap<String, Value> = properties.into_iter().collect();
-        self.ops.push(EdgeOp::ReplaceProperties(props));
-        self
-    }
+    impl_mut_builder_methods!();
 
     pub fn apply(self) -> Result<()> {
         let current_bytes = self
@@ -314,21 +333,9 @@ impl<'a> EdgeMut<'a> {
 
         let mut label = current.label.clone();
         let mut properties = current.properties.clone();
+        apply_ops(&mut label, &mut properties, &self.ops);
 
-        for op in &self.ops {
-            match op {
-                EdgeOp::SetLabel(l) => label = l.clone(),
-                EdgeOp::SetProperty(k, v) => {
-                    properties.insert(k.clone(), v.clone());
-                }
-                EdgeOp::RemoveProperty(k) => {
-                    properties.remove(k);
-                }
-                EdgeOp::ReplaceProperties(props) => {
-                    properties = props.clone();
-                }
-            }
-        }
+        NodeIndexes::validate_from_txn(self.txn, &label, &properties)?;
 
         let registered = PropertyIndexRegistry::load_edges_from_txn(self.txn)?;
 
@@ -347,7 +354,7 @@ impl<'a> EdgeMut<'a> {
             id: self.id,
             from: current.from,
             to: current.to,
-            label: label.clone(),
+            label,
             properties,
         };
 
@@ -416,7 +423,7 @@ fn next_id(txn: &mut dyn StorageTxn, key: &[u8], name: &str) -> Result<u64> {
 pub struct NodeMutBuilder<'a, S: StorageEngine> {
     db: &'a Helixite<S>,
     id: NodeId,
-    ops: Vec<NodeOp>,
+    ops: Vec<MutOp>,
 }
 
 impl<S: StorageEngine> NodeMutBuilder<'_, S> {
@@ -428,39 +435,17 @@ impl<S: StorageEngine> NodeMutBuilder<'_, S> {
         }
     }
 
-    pub fn set_label(mut self, label: impl Into<String>) -> Self {
-        self.ops.push(NodeOp::SetLabel(label.into()));
-        self
-    }
-
-    pub fn set_property(mut self, key: impl Into<String>, value: Value) -> Self {
-        self.ops.push(NodeOp::SetProperty(key.into(), value));
-        self
-    }
-
-    pub fn remove_property(mut self, key: impl Into<String>) -> Self {
-        self.ops.push(NodeOp::RemoveProperty(key.into()));
-        self
-    }
-
-    pub fn replace_properties(
-        mut self,
-        properties: impl IntoIterator<Item = (String, Value)>,
-    ) -> Self {
-        let props: BTreeMap<String, Value> = properties.into_iter().collect();
-        self.ops.push(NodeOp::ReplaceProperties(props));
-        self
-    }
+    impl_mut_builder_methods!();
 
     pub fn apply(self) -> Result<()> {
         self.db.write(|tx| {
             let mut node_mut = tx.node(self.id);
             for op in self.ops {
                 node_mut = match op {
-                    NodeOp::SetLabel(l) => node_mut.set_label(l),
-                    NodeOp::SetProperty(k, v) => node_mut.set_property(k, v),
-                    NodeOp::RemoveProperty(k) => node_mut.remove_property(k),
-                    NodeOp::ReplaceProperties(p) => node_mut.replace_properties(p),
+                    MutOp::SetLabel(l) => node_mut.set_label(l),
+                    MutOp::SetProperty(k, v) => node_mut.set_property(k, v),
+                    MutOp::RemoveProperty(k) => node_mut.remove_property(k),
+                    MutOp::ReplaceProperties(p) => node_mut.replace_properties(p),
                 };
             }
             node_mut.apply()
@@ -471,7 +456,7 @@ impl<S: StorageEngine> NodeMutBuilder<'_, S> {
 pub struct EdgeMutBuilder<'a, S: StorageEngine> {
     db: &'a Helixite<S>,
     id: EdgeId,
-    ops: Vec<EdgeOp>,
+    ops: Vec<MutOp>,
 }
 
 impl<S: StorageEngine> EdgeMutBuilder<'_, S> {
@@ -483,39 +468,17 @@ impl<S: StorageEngine> EdgeMutBuilder<'_, S> {
         }
     }
 
-    pub fn set_label(mut self, label: impl Into<String>) -> Self {
-        self.ops.push(EdgeOp::SetLabel(label.into()));
-        self
-    }
-
-    pub fn set_property(mut self, key: impl Into<String>, value: Value) -> Self {
-        self.ops.push(EdgeOp::SetProperty(key.into(), value));
-        self
-    }
-
-    pub fn remove_property(mut self, key: impl Into<String>) -> Self {
-        self.ops.push(EdgeOp::RemoveProperty(key.into()));
-        self
-    }
-
-    pub fn replace_properties(
-        mut self,
-        properties: impl IntoIterator<Item = (String, Value)>,
-    ) -> Self {
-        let props: BTreeMap<String, Value> = properties.into_iter().collect();
-        self.ops.push(EdgeOp::ReplaceProperties(props));
-        self
-    }
+    impl_mut_builder_methods!();
 
     pub fn apply(self) -> Result<()> {
         self.db.write(|tx| {
             let mut edge_mut = tx.edge(self.id);
             for op in self.ops {
                 edge_mut = match op {
-                    EdgeOp::SetLabel(l) => edge_mut.set_label(l),
-                    EdgeOp::SetProperty(k, v) => edge_mut.set_property(k, v),
-                    EdgeOp::RemoveProperty(k) => edge_mut.remove_property(k),
-                    EdgeOp::ReplaceProperties(p) => edge_mut.replace_properties(p),
+                    MutOp::SetLabel(l) => edge_mut.set_label(l),
+                    MutOp::SetProperty(k, v) => edge_mut.set_property(k, v),
+                    MutOp::RemoveProperty(k) => edge_mut.remove_property(k),
+                    MutOp::ReplaceProperties(p) => edge_mut.replace_properties(p),
                 };
             }
             edge_mut.apply()
