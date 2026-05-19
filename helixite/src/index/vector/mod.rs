@@ -118,22 +118,6 @@ impl VectorIndex {
     }
 
     pub(crate) fn load_meta(
-        storage: &impl StorageEngine,
-        label: &str,
-        property: &str,
-    ) -> Result<VectorIndexMeta> {
-        storage.read(|txn| {
-            let bytes = txn
-                .get(Db::VectorIndexes, &keys::meta_key(label, property))?
-                .ok_or_else(|| HelixiteError::VectorIndexNotFound {
-                    label: label.into(),
-                    property: property.into(),
-                })?;
-            VectorIndexMeta::deserialize(&bytes)
-        })
-    }
-
-    pub(crate) fn load_meta_from_txn(
         txn: &dyn ReadTxn,
         label: &str,
         property: &str,
@@ -147,7 +131,7 @@ impl VectorIndex {
         VectorIndexMeta::deserialize(&bytes)
     }
 
-    pub(crate) fn insert_into_txn(
+    pub(crate) fn insert(
         txn: &mut dyn WriteTxn,
         label: &str,
         property: &str,
@@ -161,37 +145,20 @@ impl VectorIndex {
                 actual: vector.len(),
             });
         }
-        Hnsw::insert_into_txn(txn, label, property, node_id, vector, meta)
+        Hnsw::insert(txn, label, property, node_id, vector, meta)
     }
 
-    pub(crate) fn delete_from_txn(
+    pub(crate) fn delete(
         txn: &mut dyn WriteTxn,
         label: &str,
         property: &str,
         node_id: NodeId,
         meta: &VectorIndexMeta,
     ) -> Result<()> {
-        Hnsw::delete_from_txn(txn, label, property, node_id, meta)
+        Hnsw::delete(txn, label, property, node_id, meta)
     }
 
     pub(crate) fn search(
-        storage: &impl StorageEngine,
-        label: &str,
-        property: &str,
-        query: &[f32],
-        k: usize,
-        meta: &VectorIndexMeta,
-    ) -> Result<Vec<(NodeId, f32)>> {
-        if query.len() != meta.dimension {
-            return Err(HelixiteError::InvalidVectorDim {
-                expected: meta.dimension,
-                actual: query.len(),
-            });
-        }
-        storage.read(|txn| Hnsw::search_in_txn(txn, label, property, query, k, meta))
-    }
-
-    pub(crate) fn search_in_txn(
         txn: &dyn ReadTxn,
         label: &str,
         property: &str,
@@ -205,6 +172,6 @@ impl VectorIndex {
                 actual: query.len(),
             });
         }
-        Hnsw::search_in_txn(txn, label, property, query, k, meta)
+        Hnsw::search(txn, label, property, query, k, meta)
     }
 }

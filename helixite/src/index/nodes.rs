@@ -26,7 +26,7 @@ impl NodeIndexes {
             let Value::Vector(vector) = prop_value else {
                 continue;
             };
-            let Ok(meta) = VectorIndex::load_meta_from_txn(txn, label, prop_name) else {
+            let Ok(meta) = VectorIndex::load_meta(txn, label, prop_name) else {
                 continue;
             };
             if vector.len() != meta.dimension {
@@ -56,10 +56,10 @@ impl NodeIndexes {
                 txn.put(Db::Properties, &key, &[])?;
             }
             if let Value::Vector(vector) = value {
-                let Ok(meta) = VectorIndex::load_meta_from_txn(txn, label, prop_name) else {
+                let Ok(meta) = VectorIndex::load_meta(txn, label, prop_name) else {
                     continue;
                 };
-                VectorIndex::insert_into_txn(txn, label, prop_name, id, vector, &meta)?;
+                VectorIndex::insert(txn, label, prop_name, id, vector, &meta)?;
             }
         }
 
@@ -83,19 +83,19 @@ impl NodeIndexes {
 
             for (prop_name, old_value) in old_props {
                 if matches!(old_value, Value::Vector(_))
-                    && let Ok(meta) = VectorIndex::load_meta_from_txn(txn, old_label, prop_name)
+                    && let Ok(meta) = VectorIndex::load_meta(txn, old_label, prop_name)
                 {
-                    VectorIndex::delete_from_txn(txn, old_label, prop_name, id, &meta)?;
+                    VectorIndex::delete(txn, old_label, prop_name, id, &meta)?;
                 }
             }
 
             for (prop_name, value) in new_props {
                 if let Value::Vector(vector) = value {
-                    let Ok(meta) = VectorIndex::load_meta_from_txn(txn, new_label, prop_name)
+                    let Ok(meta) = VectorIndex::load_meta(txn, new_label, prop_name)
                     else {
                         continue;
                     };
-                    VectorIndex::insert_into_txn(txn, new_label, prop_name, id, vector, &meta)?;
+                    VectorIndex::insert(txn, new_label, prop_name, id, vector, &meta)?;
                 }
             }
 
@@ -128,9 +128,9 @@ impl NodeIndexes {
                 }
 
                 if matches!(old_value, Value::Vector(_))
-                    && let Ok(meta) = VectorIndex::load_meta_from_txn(txn, old_label, prop_name)
+                    && let Ok(meta) = VectorIndex::load_meta(txn, old_label, prop_name)
                 {
-                    VectorIndex::delete_from_txn(txn, old_label, prop_name, id, &meta)?;
+                    VectorIndex::delete(txn, old_label, prop_name, id, &meta)?;
                 }
             }
 
@@ -147,13 +147,13 @@ impl NodeIndexes {
                 }
 
                 if let Value::Vector(vector) = new_value {
-                    let Ok(meta) = VectorIndex::load_meta_from_txn(txn, new_label, prop_name)
+                    let Ok(meta) = VectorIndex::load_meta(txn, new_label, prop_name)
                     else {
                         continue;
                     };
-                    VectorIndex::delete_from_txn(txn, new_label, prop_name, id, &meta)?;
-                    let meta = VectorIndex::load_meta_from_txn(txn, new_label, prop_name)?;
-                    VectorIndex::insert_into_txn(txn, new_label, prop_name, id, vector, &meta)?;
+                    VectorIndex::delete(txn, new_label, prop_name, id, &meta)?;
+                    let meta = VectorIndex::load_meta(txn, new_label, prop_name)?;
+                    VectorIndex::insert(txn, new_label, prop_name, id, vector, &meta)?;
                 }
             }
         }
@@ -175,9 +175,9 @@ impl NodeIndexes {
 
         for (prop_name, value) in &node.properties {
             if matches!(value, Value::Vector(_))
-                && let Ok(meta) = VectorIndex::load_meta_from_txn(txn, &node.label, prop_name)
+                && let Ok(meta) = VectorIndex::load_meta(txn, &node.label, prop_name)
             {
-                VectorIndex::delete_from_txn(txn, &node.label, prop_name, node.id, &meta)?;
+                VectorIndex::delete(txn, &node.label, prop_name, node.id, &meta)?;
             }
         }
 

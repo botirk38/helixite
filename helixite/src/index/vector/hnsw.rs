@@ -12,7 +12,7 @@ use super::similarity::SimilarityKind;
 pub(crate) struct Hnsw;
 
 impl Hnsw {
-    pub(crate) fn insert_into_txn(
+    pub(crate) fn insert(
         txn: &mut dyn WriteTxn,
         label: &str,
         property: &str,
@@ -76,7 +76,7 @@ impl Hnsw {
                     level: l,
                     similarity: meta.similarity,
                 };
-                let neighbors = search_layer_txn(txn, current, &ctx)?;
+                let neighbors = search_layer(txn, current, &ctx)?;
                 if let Some(&best) = neighbors.first() {
                     current = best;
                 }
@@ -92,7 +92,7 @@ impl Hnsw {
                     level: l,
                     similarity: meta.similarity,
                 };
-                let neighbors = search_layer_txn(txn, current, &ctx)?;
+                let neighbors = search_layer(txn, current, &ctx)?;
                 if let Some(&best) = neighbors.first() {
                     current = best;
                 }
@@ -108,8 +108,8 @@ impl Hnsw {
                 level: l,
                 similarity: meta.similarity,
             };
-            let neighbors = search_layer_txn(txn, current, &ctx)?;
-            let selected = select_neighbors_txn(
+            let neighbors = search_layer(txn, current, &ctx)?;
+            let selected = select_neighbors(
                 txn,
                 label,
                 property,
@@ -120,8 +120,8 @@ impl Hnsw {
             )?;
 
             for &neighbor_id in &selected {
-                add_link_txn(txn, label, property, l, neighbor_id, node_id, meta)?;
-                add_link_txn(txn, label, property, l, node_id, neighbor_id, meta)?;
+                add_link(txn, label, property, l, neighbor_id, node_id, meta)?;
+                add_link(txn, label, property, l, node_id, neighbor_id, meta)?;
             }
 
             if let Some(&first) = selected.first() {
@@ -143,7 +143,7 @@ impl Hnsw {
         Ok(())
     }
 
-    pub(crate) fn delete_from_txn(
+    pub(crate) fn delete(
         txn: &mut dyn WriteTxn,
         label: &str,
         property: &str,
@@ -216,7 +216,7 @@ impl Hnsw {
         Ok(())
     }
 
-    pub(crate) fn search_in_txn(
+    pub(crate) fn search(
         txn: &dyn ReadTxn,
         label: &str,
         property: &str,
@@ -248,7 +248,7 @@ impl Hnsw {
                 level: l,
                 similarity: meta.similarity,
             };
-            let neighbors = search_layer_txn(txn, current, &ctx)?;
+            let neighbors = search_layer(txn, current, &ctx)?;
             if let Some(&best) = neighbors.first() {
                 current = best;
             }
@@ -262,11 +262,11 @@ impl Hnsw {
             level: 0,
             similarity: meta.similarity,
         };
-        let candidates = search_layer_txn(txn, current, &ctx)?;
+        let candidates = search_layer(txn, current, &ctx)?;
 
         let mut results = Vec::new();
         for &candidate_id in &candidates {
-            let vec = load_vector_txn(txn, label, property, candidate_id)?;
+            let vec = load_vector(txn, label, property, candidate_id)?;
             let score = meta.similarity.compute(&vec, query)?;
             results.push((candidate_id, score));
         }
@@ -294,13 +294,13 @@ struct SearchCtx<'a> {
     similarity: SimilarityKind,
 }
 
-fn search_layer_txn(txn: &dyn ReadTxn, entry: NodeId, ctx: &SearchCtx<'_>) -> Result<Vec<NodeId>> {
+fn search_layer(txn: &dyn ReadTxn, entry: NodeId, ctx: &SearchCtx<'_>) -> Result<Vec<NodeId>> {
     let mut visited = HashSet::new();
     let mut candidates = BinaryHeap::new();
     let mut results = BinaryHeap::new();
 
     visited.insert(entry);
-    let entry_vec = load_vector_txn(txn, ctx.label, ctx.property, entry)?;
+    let entry_vec = load_vector(txn, ctx.label, ctx.property, entry)?;
     let score = ctx.similarity.compute(&entry_vec, ctx.query)?;
     let candidate = Candidate {
         node_id: entry,
@@ -319,11 +319,11 @@ fn search_layer_txn(txn: &dyn ReadTxn, entry: NodeId, ctx: &SearchCtx<'_>) -> Re
         }
 
         let neighbors =
-            load_neighbors_txn(txn, ctx.label, ctx.property, ctx.level, candidate.node_id)?;
+            load_neighbors(txn, ctx.label, ctx.property, ctx.level, candidate.node_id)?;
         for neighbor_id in neighbors {
             if !visited.contains(&neighbor_id) {
                 visited.insert(neighbor_id);
-                let neighbor_vec = load_vector_txn(txn, ctx.label, ctx.property, neighbor_id)?;
+                let neighbor_vec = load_vector(txn, ctx.label, ctx.property, neighbor_id)?;
                 let score = ctx.similarity.compute(&neighbor_vec, ctx.query)?;
                 let c = Candidate {
                     node_id: neighbor_id,
@@ -347,7 +347,7 @@ fn search_layer_txn(txn: &dyn ReadTxn, entry: NodeId, ctx: &SearchCtx<'_>) -> Re
     Ok(out)
 }
 
-fn select_neighbors_txn(
+fn select_neighbors(
     txn: &dyn ReadTxn,
     label: &str,
     property: &str,
@@ -358,7 +358,7 @@ fn select_neighbors_txn(
 ) -> Result<Vec<NodeId>> {
     let mut scored = Vec::new();
     for &id in candidates {
-        let vec = load_vector_txn(txn, label, property, id)?;
+        let vec = load_vector(txn, label, property, id)?;
         let score = similarity.compute(&vec, query)?;
         scored.push((id, score));
     }
@@ -376,7 +376,7 @@ fn select_neighbors_txn(
     Ok(scored.into_iter().map(|(id, _)| id).collect())
 }
 
-fn add_link_txn(
+fn add_link(
     txn: &mut dyn WriteTxn,
     label: &str,
     property: &str,
@@ -392,13 +392,13 @@ fn add_link_txn(
     let entries = txn.scan_prefix(Db::VectorIndexes, &prefix)?;
 
     if entries.len() > meta.m {
-        prune_links_txn(txn, label, property, from, &entries, meta)?;
+        prune_links(txn, label, property, from, &entries, meta)?;
     }
 
     Ok(())
 }
 
-fn prune_links_txn(
+fn prune_links(
     txn: &mut dyn WriteTxn,
     label: &str,
     property: &str,
@@ -417,10 +417,10 @@ fn prune_links_txn(
         return Ok(());
     }
 
-    let node_vec = load_vector_txn(txn, label, property, node_id)?;
+    let node_vec = load_vector(txn, label, property, node_id)?;
     let mut scored = Vec::new();
     for neighbor_id in neighbors {
-        let neighbor_vec = load_vector_txn(txn, label, property, neighbor_id)?;
+        let neighbor_vec = load_vector(txn, label, property, neighbor_id)?;
         let score = meta.similarity.compute(&node_vec, &neighbor_vec)?;
         scored.push((neighbor_id, score));
     }
@@ -449,7 +449,7 @@ fn prune_links_txn(
     Ok(())
 }
 
-fn load_neighbors_txn(
+fn load_neighbors(
     txn: &dyn ReadTxn,
     label: &str,
     property: &str,
@@ -469,7 +469,7 @@ fn load_neighbors_txn(
     Ok(neighbors)
 }
 
-fn load_vector_txn(
+fn load_vector(
     txn: &dyn ReadTxn,
     label: &str,
     property: &str,

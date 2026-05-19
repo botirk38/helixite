@@ -118,13 +118,13 @@ impl NodeQueryExec<'_> {
                 .as_ref()
                 .ok_or_else(|| HelixiteError::Storage("vector search requires a label".into()))?;
 
-            let meta = VectorIndex::load_meta_from_txn(self.txn, label, &vs.property)?;
+            let meta = VectorIndex::load_meta(self.txn, label, &vs.property)?;
             let search_k = if self.filters.is_empty() {
                 vs.k
             } else {
                 vs.k * 10
             };
-            let mut results = VectorIndex::search_in_txn(
+            let mut results = VectorIndex::search(
                 self.txn,
                 label,
                 &vs.property,
