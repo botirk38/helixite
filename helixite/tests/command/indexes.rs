@@ -4,10 +4,16 @@ use tempfile::tempdir;
 #[test]
 fn test_create_node_property_index() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
-    db.add_node("User", vec![("name".to_string(), helixite::Value::String("Alice".to_string()))])
-        .unwrap();
+    db.add_node(
+        "User",
+        vec![(
+            "name".to_string(),
+            helixite::Value::String("Alice".to_string()),
+        )],
+    )
+    .unwrap();
 
     db.indexes()
         .nodes()
@@ -18,12 +24,9 @@ fn test_create_node_property_index() {
 #[test]
 fn test_create_node_property_index_fails_for_missing_label() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
-    let result = db
-        .indexes()
-        .nodes()
-        .create_property("NonExistent", "email");
+    let result = db.indexes().nodes().create_property("NonExistent", "email");
 
     assert!(matches!(result, Err(HelixiteError::LabelNotFound(_))));
 }
@@ -31,20 +34,23 @@ fn test_create_node_property_index_fails_for_missing_label() {
 #[test]
 fn test_create_duplicate_node_property_index_fails() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
-    db.add_node("User", vec![("name".to_string(), helixite::Value::String("Alice".to_string()))])
-        .unwrap();
+    db.add_node(
+        "User",
+        vec![(
+            "name".to_string(),
+            helixite::Value::String("Alice".to_string()),
+        )],
+    )
+    .unwrap();
 
     db.indexes()
         .nodes()
         .create_property("User", "name")
         .unwrap();
 
-    let result = db
-        .indexes()
-        .nodes()
-        .create_property("User", "name");
+    let result = db.indexes().nodes().create_property("User", "name");
 
     assert!(matches!(result, Err(HelixiteError::DuplicateKey(_))));
 }
@@ -52,25 +58,25 @@ fn test_create_duplicate_node_property_index_fails() {
 #[test]
 fn test_drop_node_property_index() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
-    db.add_node("User", vec![("name".to_string(), helixite::Value::String("Alice".to_string()))])
-        .unwrap();
+    db.add_node(
+        "User",
+        vec![(
+            "name".to_string(),
+            helixite::Value::String("Alice".to_string()),
+        )],
+    )
+    .unwrap();
 
     db.indexes()
         .nodes()
         .create_property("User", "name")
         .unwrap();
 
-    db.indexes()
-        .nodes()
-        .drop_property("User", "name")
-        .unwrap();
+    db.indexes().nodes().drop_property("User", "name").unwrap();
 
-    let result = db
-        .indexes()
-        .nodes()
-        .drop_property("User", "name");
+    let result = db.indexes().nodes().drop_property("User", "name");
 
     assert!(matches!(result, Err(HelixiteError::IndexNotFound(_))));
 }
@@ -78,12 +84,17 @@ fn test_drop_node_property_index() {
 #[test]
 fn test_create_edge_property_index() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let from = db.add_node("User", Vec::new()).unwrap();
     let to = db.add_node("User", Vec::new()).unwrap();
-    db.add_edge(from, to, "knows", vec![("since".to_string(), helixite::Value::Int(2020))])
-        .unwrap();
+    db.add_edge(
+        from,
+        to,
+        "knows",
+        vec![("since".to_string(), helixite::Value::Int(2020))],
+    )
+    .unwrap();
 
     db.indexes()
         .edges()
@@ -94,22 +105,24 @@ fn test_create_edge_property_index() {
 #[test]
 fn test_create_duplicate_edge_property_index_fails() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let from = db.add_node("User", Vec::new()).unwrap();
     let to = db.add_node("User", Vec::new()).unwrap();
-    db.add_edge(from, to, "knows", vec![("since".to_string(), helixite::Value::Int(2020))])
-        .unwrap();
+    db.add_edge(
+        from,
+        to,
+        "knows",
+        vec![("since".to_string(), helixite::Value::Int(2020))],
+    )
+    .unwrap();
 
     db.indexes()
         .edges()
         .create_property("knows", "since")
         .unwrap();
 
-    let result = db
-        .indexes()
-        .edges()
-        .create_property("knows", "since");
+    let result = db.indexes().edges().create_property("knows", "since");
 
     assert!(matches!(result, Err(HelixiteError::DuplicateKey(_))));
 }
@@ -117,12 +130,17 @@ fn test_create_duplicate_edge_property_index_fails() {
 #[test]
 fn test_drop_edge_property_index() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let from = db.add_node("User", Vec::new()).unwrap();
     let to = db.add_node("User", Vec::new()).unwrap();
-    db.add_edge(from, to, "knows", vec![("since".to_string(), helixite::Value::Int(2020))])
-        .unwrap();
+    db.add_edge(
+        from,
+        to,
+        "knows",
+        vec![("since".to_string(), helixite::Value::Int(2020))],
+    )
+    .unwrap();
 
     db.indexes()
         .edges()
@@ -134,10 +152,7 @@ fn test_drop_edge_property_index() {
         .drop_property("knows", "since")
         .unwrap();
 
-    let result = db
-        .indexes()
-        .edges()
-        .drop_property("knows", "since");
+    let result = db.indexes().edges().drop_property("knows", "since");
 
     assert!(matches!(result, Err(HelixiteError::IndexNotFound(_))));
 }
@@ -145,15 +160,18 @@ fn test_drop_edge_property_index() {
 #[test]
 fn test_drop_nonexistent_node_property_index_fails() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
-    db.add_node("User", vec![("name".to_string(), helixite::Value::String("Alice".to_string()))])
-        .unwrap();
+    db.add_node(
+        "User",
+        vec![(
+            "name".to_string(),
+            helixite::Value::String("Alice".to_string()),
+        )],
+    )
+    .unwrap();
 
-    let result = db
-        .indexes()
-        .nodes()
-        .drop_property("User", "email");
+    let result = db.indexes().nodes().drop_property("User", "email");
 
     assert!(matches!(result, Err(HelixiteError::IndexNotFound(_))));
 }
@@ -161,16 +179,13 @@ fn test_drop_nonexistent_node_property_index_fails() {
 #[test]
 fn test_drop_nonexistent_edge_property_index_fails() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let from = db.add_node("User", Vec::new()).unwrap();
     let to = db.add_node("User", Vec::new()).unwrap();
     db.add_edge(from, to, "knows", Vec::new()).unwrap();
 
-    let result = db
-        .indexes()
-        .edges()
-        .drop_property("knows", "weight");
+    let result = db.indexes().edges().drop_property("knows", "weight");
 
     assert!(matches!(result, Err(HelixiteError::IndexNotFound(_))));
 }
@@ -178,7 +193,7 @@ fn test_drop_nonexistent_edge_property_index_fails() {
 #[test]
 fn test_create_node_property_index_without_nodes() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.add_node("User", Vec::new()).unwrap();
 
@@ -191,20 +206,23 @@ fn test_create_node_property_index_without_nodes() {
 #[test]
 fn test_drop_then_recreate_node_property_index() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
-    db.add_node("User", vec![("name".to_string(), helixite::Value::String("Alice".to_string()))])
-        .unwrap();
+    db.add_node(
+        "User",
+        vec![(
+            "name".to_string(),
+            helixite::Value::String("Alice".to_string()),
+        )],
+    )
+    .unwrap();
 
     db.indexes()
         .nodes()
         .create_property("User", "name")
         .unwrap();
 
-    db.indexes()
-        .nodes()
-        .drop_property("User", "name")
-        .unwrap();
+    db.indexes().nodes().drop_property("User", "name").unwrap();
 
     db.indexes()
         .nodes()
@@ -215,7 +233,7 @@ fn test_drop_then_recreate_node_property_index() {
 #[test]
 fn test_drop_then_recreate_edge_property_index() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let from = db.add_node("User", Vec::new()).unwrap();
     let to = db.add_node("User", Vec::new()).unwrap();
@@ -240,12 +258,22 @@ fn test_drop_then_recreate_edge_property_index() {
 #[test]
 fn test_multiple_node_property_indexes_for_same_label() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
-    db.add_node("User", vec![
-        ("name".to_string(), helixite::Value::String("Alice".to_string())),
-        ("email".to_string(), helixite::Value::String("alice@example.com".to_string())),
-    ]).unwrap();
+    db.add_node(
+        "User",
+        vec![
+            (
+                "name".to_string(),
+                helixite::Value::String("Alice".to_string()),
+            ),
+            (
+                "email".to_string(),
+                helixite::Value::String("alice@example.com".to_string()),
+            ),
+        ],
+    )
+    .unwrap();
 
     db.indexes()
         .nodes()
@@ -261,14 +289,20 @@ fn test_multiple_node_property_indexes_for_same_label() {
 #[test]
 fn test_multiple_edge_property_indexes_for_same_label() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let from = db.add_node("User", Vec::new()).unwrap();
     let to = db.add_node("User", Vec::new()).unwrap();
-    db.add_edge(from, to, "knows", vec![
-        ("since".to_string(), helixite::Value::Int(2020)),
-        ("weight".to_string(), helixite::Value::Float(0.5)),
-    ]).unwrap();
+    db.add_edge(
+        from,
+        to,
+        "knows",
+        vec![
+            ("since".to_string(), helixite::Value::Int(2020)),
+            ("weight".to_string(), helixite::Value::Float(0.5)),
+        ],
+    )
+    .unwrap();
 
     db.indexes()
         .edges()
@@ -287,21 +321,24 @@ fn test_node_property_index_survives_reopen() {
     let path = dir.path();
 
     {
-        let db = HelixiteBuilder::default().open(path).unwrap();
-        db.add_node("User", vec![("name".to_string(), helixite::Value::String("Alice".to_string()))])
-            .unwrap();
+        let db = HelixiteBuilder::new().open(path).unwrap();
+        db.add_node(
+            "User",
+            vec![(
+                "name".to_string(),
+                helixite::Value::String("Alice".to_string()),
+            )],
+        )
+        .unwrap();
         db.indexes()
             .nodes()
             .create_property("User", "name")
             .unwrap();
     }
 
-    let db = HelixiteBuilder::default().open(path).unwrap();
+    let db = HelixiteBuilder::new().open(path).unwrap();
 
-    let result = db
-        .indexes()
-        .nodes()
-        .drop_property("User", "name");
+    let result = db.indexes().nodes().drop_property("User", "name");
 
     assert!(result.is_ok());
 }
@@ -312,21 +349,24 @@ fn test_node_property_index_persists_after_reopen() {
     let path = dir.path();
 
     {
-        let db = HelixiteBuilder::default().open(path).unwrap();
-        db.add_node("User", vec![("name".to_string(), helixite::Value::String("Alice".to_string()))])
-            .unwrap();
+        let db = HelixiteBuilder::new().open(path).unwrap();
+        db.add_node(
+            "User",
+            vec![(
+                "name".to_string(),
+                helixite::Value::String("Alice".to_string()),
+            )],
+        )
+        .unwrap();
         db.indexes()
             .nodes()
             .create_property("User", "name")
             .unwrap();
     }
 
-    let db = HelixiteBuilder::default().open(path).unwrap();
+    let db = HelixiteBuilder::new().open(path).unwrap();
 
-    let result = db
-        .indexes()
-        .nodes()
-        .create_property("User", "name");
+    let result = db.indexes().nodes().create_property("User", "name");
 
     assert!(matches!(result, Err(HelixiteError::DuplicateKey(_))));
 }
@@ -337,23 +377,25 @@ fn test_edge_property_index_persists_after_reopen() {
     let path = dir.path();
 
     {
-        let db = HelixiteBuilder::default().open(path).unwrap();
+        let db = HelixiteBuilder::new().open(path).unwrap();
         let from = db.add_node("User", Vec::new()).unwrap();
         let to = db.add_node("User", Vec::new()).unwrap();
-        db.add_edge(from, to, "knows", vec![("since".to_string(), helixite::Value::Int(2020))])
-            .unwrap();
+        db.add_edge(
+            from,
+            to,
+            "knows",
+            vec![("since".to_string(), helixite::Value::Int(2020))],
+        )
+        .unwrap();
         db.indexes()
             .edges()
             .create_property("knows", "since")
             .unwrap();
     }
 
-    let db = HelixiteBuilder::default().open(path).unwrap();
+    let db = HelixiteBuilder::new().open(path).unwrap();
 
-    let result = db
-        .indexes()
-        .edges()
-        .create_property("knows", "since");
+    let result = db.indexes().edges().create_property("knows", "since");
 
     assert!(matches!(result, Err(HelixiteError::DuplicateKey(_))));
 }

@@ -7,7 +7,8 @@ use crate::storage::engine::Db;
 use crate::value::Value;
 
 use super::labels::LabelIndex;
-use super::properties::PropertyIndex;
+use super::properties::NodePropertyIndex;
+use super::properties::PropertyIndexRegistry;
 use super::vector::VectorIndex;
 
 pub(crate) struct NodeIndexes;
@@ -40,12 +41,15 @@ impl NodeIndexes {
         label: &str,
         id: NodeId,
         properties: &BTreeMap<String, Value>,
+        registered_indexes: &PropertyIndexRegistry,
     ) -> Result<()> {
         let label_key = LabelIndex::key(label, id);
         txn.put(Db::Labels, &label_key, &[])?;
 
         for (prop_name, value) in properties {
-            if let Some(key) = PropertyIndex::key(prop_name, value, id) {
+            if Self::is_indexed(registered_indexes, label, prop_name)
+                && let Some(key) = NodePropertyIndex::key(label, prop_name, value, id)
+            {
                 txn.put(Db::Properties, &key, &[])?;
             }
             if let Value::Vector(vector) = value {
@@ -66,6 +70,7 @@ impl NodeIndexes {
         id: NodeId,
         old_props: &BTreeMap<String, Value>,
         new_props: &BTreeMap<String, Value>,
+        registered_indexes: &PropertyIndexRegistry,
     ) -> Result<()> {
         if old_label != new_label {
             let old_key = LabelIndex::key(old_label, id);
@@ -90,45 +95,70 @@ impl NodeIndexes {
                     VectorIndex::insert_into_txn(txn, new_label, prop_name, id, vector, &meta)?;
                 }
             }
-        }
 
-        for (prop_name, old_value) in old_props {
-            let still_present = new_props.get(prop_name) == Some(old_value);
-            if still_present {
-                continue;
+            for (prop_name, old_value) in old_props {
+                if Self::is_indexed(registered_indexes, old_label, prop_name)
+                    && let Some(key) = NodePropertyIndex::key(old_label, prop_name, old_value, id)
+                {
+                    txn.delete(Db::Properties, &key)?;
+                }
             }
 
-            if let Some(key) = PropertyIndex::key(prop_name, old_value, id) {
-                txn.delete(Db::Properties, &key)?;
+            for (prop_name, new_value) in new_props {
+                if Self::is_indexed(registered_indexes, new_label, prop_name)
+                    && let Some(key) = NodePropertyIndex::key(new_label, prop_name, new_value, id)
+                {
+                    txn.put(Db::Properties, &key, &[])?;
+                }
             }
-
-            if matches!(old_value, Value::Vector(_))
-                && let Ok(meta) = VectorIndex::load_meta_from_txn(txn, old_label, prop_name)
-            {
-                VectorIndex::delete_from_txn(txn, old_label, prop_name, id, &meta)?;
-            }
-        }
-
-        for (prop_name, new_value) in new_props {
-            let was_present = old_props.get(prop_name) == Some(new_value);
-            if was_present {
-                continue;
-            }
-
-            if let Some(key) = PropertyIndex::key(prop_name, new_value, id) {
-                txn.put(Db::Properties, &key, &[])?;
-            }
-
-            if let Value::Vector(vector) = new_value {
-                let Ok(meta) = VectorIndex::load_meta_from_txn(txn, new_label, prop_name) else {
+        } else {
+            for (prop_name, old_value) in old_props {
+                let still_present = new_props.get(prop_name) == Some(old_value);
+                if still_present {
                     continue;
-                };
-                VectorIndex::delete_from_txn(txn, new_label, prop_name, id, &meta)?;
-                let meta = VectorIndex::load_meta_from_txn(txn, new_label, prop_name)?;
-                VectorIndex::insert_into_txn(txn, new_label, prop_name, id, vector, &meta)?;
+                }
+
+                if Self::is_indexed(registered_indexes, old_label, prop_name)
+                    && let Some(key) = NodePropertyIndex::key(old_label, prop_name, old_value, id)
+                {
+                    txn.delete(Db::Properties, &key)?;
+                }
+
+                if matches!(old_value, Value::Vector(_))
+                    && let Ok(meta) = VectorIndex::load_meta_from_txn(txn, old_label, prop_name)
+                {
+                    VectorIndex::delete_from_txn(txn, old_label, prop_name, id, &meta)?;
+                }
+            }
+
+            for (prop_name, new_value) in new_props {
+                let was_present = old_props.get(prop_name) == Some(new_value);
+                if was_present {
+                    continue;
+                }
+
+                if Self::is_indexed(registered_indexes, new_label, prop_name)
+                    && let Some(key) = NodePropertyIndex::key(new_label, prop_name, new_value, id)
+                {
+                    txn.put(Db::Properties, &key, &[])?;
+                }
+
+                if let Value::Vector(vector) = new_value {
+                    let Ok(meta) = VectorIndex::load_meta_from_txn(txn, new_label, prop_name)
+                    else {
+                        continue;
+                    };
+                    VectorIndex::delete_from_txn(txn, new_label, prop_name, id, &meta)?;
+                    let meta = VectorIndex::load_meta_from_txn(txn, new_label, prop_name)?;
+                    VectorIndex::insert_into_txn(txn, new_label, prop_name, id, vector, &meta)?;
+                }
             }
         }
 
         Ok(())
+    }
+
+    fn is_indexed(registered: &PropertyIndexRegistry, label: &str, property: &str) -> bool {
+        registered.contains(label, property)
     }
 }

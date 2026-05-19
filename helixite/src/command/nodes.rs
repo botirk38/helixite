@@ -8,6 +8,7 @@ use crate::storage::engine::Db;
 use crate::value::Value;
 
 use crate::index::nodes::NodeIndexes;
+use crate::index::properties::PropertyIndexRegistry;
 
 pub struct NodeCommand<'a, S: StorageEngine> {
     db: &'a crate::db::Helixite<S>,
@@ -79,6 +80,8 @@ impl<'a, S: StorageEngine> NodeCommand<'a, S> {
         NodeIndexes::validate(self.db.storage(), &label, &properties)?;
 
         self.db.storage().write(|txn| {
+            let registered = PropertyIndexRegistry::load_nodes_from_txn(txn)?;
+
             let old_label = &current.label;
 
             NodeIndexes::replace(
@@ -88,6 +91,7 @@ impl<'a, S: StorageEngine> NodeCommand<'a, S> {
                 self.id,
                 &current.properties,
                 &properties,
+                &registered,
             )?;
 
             let updated = Node {

@@ -1,11 +1,21 @@
+use std::collections::BTreeSet;
+
 use crate::edge::{Direction, Edge};
 use crate::error::{HelixiteError, Result};
-use crate::id::NodeId;
+use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
 use crate::storage::StorageEngine;
 use crate::storage::engine::Db;
+use crate::value::Value;
 
 use crate::index::edges::EdgeIndex;
+use crate::index::properties::EdgePropertyIndex;
+use crate::index::properties::PropertyIndexMetadata;
+
+#[derive(Debug, Clone)]
+pub(crate) enum EdgePropertyFilter {
+    Eq(String, Value),
+}
 
 pub struct NodeRefQuery<'a, S: StorageEngine> {
     storage: &'a S,
@@ -17,6 +27,7 @@ pub struct TraversalQuery<'a, S: StorageEngine> {
     node_id: NodeId,
     direction: Direction,
     label: Option<String>,
+    filters: Vec<EdgePropertyFilter>,
 }
 
 impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
@@ -30,6 +41,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
             node_id: self.node_id,
             direction: Direction::Out,
             label: Some(label.into()),
+            filters: Vec::new(),
         }
     }
 
@@ -39,6 +51,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
             node_id: self.node_id,
             direction: Direction::In,
             label: Some(label.into()),
+            filters: Vec::new(),
         }
     }
 
@@ -48,6 +61,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
             node_id: self.node_id,
             direction: Direction::Out,
             label: None,
+            filters: Vec::new(),
         }
     }
 
@@ -57,12 +71,23 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
             node_id: self.node_id,
             direction: Direction::In,
             label: None,
+            filters: Vec::new(),
         }
     }
 }
 
 impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
+    pub fn where_eq(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Eq(property.into(), value));
+        self
+    }
+
     pub fn collect_edges(self) -> Result<Vec<Edge>> {
+        if !self.filters.is_empty() {
+            return self.collect_edges_filtered();
+        }
+
         let (db, prefix) = self.prefix_and_db();
         let entries = self.storage.scan_prefix(db, &prefix)?;
         let mut edges = Vec::with_capacity(entries.len());
@@ -78,6 +103,10 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
     }
 
     pub fn collect_nodes(self) -> Result<Vec<Node>> {
+        if !self.filters.is_empty() {
+            return self.collect_nodes_filtered();
+        }
+
         let (db, prefix) = self.prefix_and_db();
         let entries = self.storage.scan_prefix(db, &prefix)?;
         let mut nodes = Vec::with_capacity(entries.len());
@@ -93,12 +122,148 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
     }
 
     pub fn count(self) -> Result<usize> {
+        if !self.filters.is_empty() {
+            return self.count_filtered();
+        }
+
         let (db, prefix) = self.prefix_and_db();
         let entries = self.storage.scan_prefix(db, &prefix)?;
         Ok(entries.len())
     }
 
-    fn load_edge(&self, edge_id: NodeId) -> Result<Edge> {
+    fn collect_edges_filtered(self) -> Result<Vec<Edge>> {
+        let edge_label = self.label.as_ref().ok_or_else(|| {
+            HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
+        })?;
+
+        for filter in &self.filters {
+            let EdgePropertyFilter::Eq(property, _value) = filter;
+            if !self.is_edge_property_indexed(edge_label, property)? {
+                return Err(HelixiteError::IndexNotFound(format!(
+                    "no edge property index for {edge_label}::{property}"
+                )));
+            }
+        }
+
+        let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
+        let adjacency_ids = self.scan_adjacency_ids()?;
+
+        let mut edges = Vec::new();
+        for edge_id in &candidate_ids {
+            if adjacency_ids.contains(edge_id) {
+                let edge = self.load_edge(*edge_id)?;
+                edges.push(edge);
+            }
+        }
+
+        Ok(edges)
+    }
+
+    fn collect_nodes_filtered(self) -> Result<Vec<Node>> {
+        let edge_label = self.label.as_ref().ok_or_else(|| {
+            HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
+        })?;
+
+        for filter in &self.filters {
+            let EdgePropertyFilter::Eq(property, _value) = filter;
+            if !self.is_edge_property_indexed(edge_label, property)? {
+                return Err(HelixiteError::IndexNotFound(format!(
+                    "no edge property index for {edge_label}::{property}"
+                )));
+            }
+        }
+
+        let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
+        let adjacency_ids = self.scan_adjacency_ids()?;
+
+        let mut nodes = Vec::new();
+        for edge_id in &candidate_ids {
+            if adjacency_ids.contains(edge_id) {
+                let edge = self.load_edge(*edge_id)?;
+                let target_id = EdgeIndex::decode_target_from_edge(&edge, self.direction);
+                let node = self.load_node(target_id)?;
+                nodes.push(node);
+            }
+        }
+
+        Ok(nodes)
+    }
+
+    fn count_filtered(self) -> Result<usize> {
+        let edge_label = self.label.as_ref().ok_or_else(|| {
+            HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
+        })?;
+
+        for filter in &self.filters {
+            let EdgePropertyFilter::Eq(property, _value) = filter;
+            if !self.is_edge_property_indexed(edge_label, property)? {
+                return Err(HelixiteError::IndexNotFound(format!(
+                    "no edge property index for {edge_label}::{property}"
+                )));
+            }
+        }
+
+        let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
+        let adjacency_ids = self.scan_adjacency_ids()?;
+
+        Ok(candidate_ids
+            .iter()
+            .filter(|id| adjacency_ids.contains(id))
+            .count())
+    }
+
+    fn resolve_filtered_edge_ids(&self, label: &str) -> Result<BTreeSet<EdgeId>> {
+        let mut sets: Vec<BTreeSet<EdgeId>> = Vec::with_capacity(self.filters.len());
+
+        for filter in &self.filters {
+            let EdgePropertyFilter::Eq(property, value) = filter;
+            let Some(prefix) = EdgePropertyIndex::lookup_prefix(label, property, value) else {
+                return Ok(BTreeSet::new());
+            };
+
+            let entries = self.storage.scan_prefix(Db::Properties, &prefix)?;
+            let mut set = BTreeSet::new();
+            for (key, _) in entries {
+                if let Some(edge_id) = EdgePropertyIndex::decode_edge_id(&key) {
+                    set.insert(edge_id);
+                }
+            }
+            sets.push(set);
+        }
+
+        if sets.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+
+        let mut result = sets[0].clone();
+        for set in &sets[1..] {
+            result = result.intersection(set).copied().collect();
+        }
+
+        Ok(result)
+    }
+
+    fn scan_adjacency_ids(&self) -> Result<BTreeSet<EdgeId>> {
+        let (db, prefix) = self.prefix_and_db();
+        let entries = self.storage.scan_prefix(db, &prefix)?;
+        let mut ids = BTreeSet::new();
+        for (key, _) in entries {
+            if let Some(edge_id) = EdgeIndex::decode_edge_id(&key) {
+                ids.insert(edge_id);
+            }
+        }
+        Ok(ids)
+    }
+
+    fn is_edge_property_indexed(&self, label: &str, property: &str) -> Result<bool> {
+        let key = PropertyIndexMetadata::edge_key(label, property);
+        match self.storage.get(Db::Metadata, &key)? {
+            Some(_) => Ok(true),
+            None => Ok(false),
+        }
+    }
+
+    fn load_edge(&self, edge_id: EdgeId) -> Result<Edge> {
         let bytes = self
             .storage
             .get(Db::Edges, &edge_id.to_be_bytes())?

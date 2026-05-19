@@ -4,7 +4,7 @@ use tempfile::tempdir;
 #[test]
 fn test_open_new_db() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
     assert!(db.path().exists());
 }
 
@@ -13,10 +13,10 @@ fn test_reopen_db() {
     let dir = tempdir().unwrap();
     let path = dir.path();
 
-    let db1 = HelixiteBuilder::default().open(path).unwrap();
+    let db1 = HelixiteBuilder::new().open(path).unwrap();
     drop(db1);
 
-    let db2 = HelixiteBuilder::default().open(path).unwrap();
+    let db2 = HelixiteBuilder::new().open(path).unwrap();
     assert!(db2.path().exists());
 }
 
@@ -24,7 +24,7 @@ fn test_reopen_db() {
 fn test_open_with_config() {
     let dir = tempdir().unwrap();
     let config = Config::default().with_map_size(64 * 1024 * 1024);
-    let db = HelixiteBuilder::default()
+    let db = HelixiteBuilder::new()
         .config(config)
         .open(dir.path())
         .unwrap();
@@ -34,7 +34,7 @@ fn test_open_with_config() {
 #[test]
 fn test_open_with_storage_accepts_custom_engine() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default()
+    let db = HelixiteBuilder::new()
         .storage(MemoryStorage::default())
         .open(dir.path())
         .unwrap();

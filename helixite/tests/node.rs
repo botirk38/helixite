@@ -4,7 +4,7 @@ use tempfile::tempdir;
 #[test]
 fn test_add_node_returns_id() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db.add_node("User", Vec::new()).unwrap();
     assert_eq!(id, 1);
@@ -13,7 +13,7 @@ fn test_add_node_returns_id() {
 #[test]
 fn test_get_node() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db
         .add_node(
@@ -38,7 +38,7 @@ fn test_get_node() {
 #[test]
 fn test_get_missing_node_returns_error() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let result = db.get_node(999);
     assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
@@ -50,7 +50,7 @@ fn test_node_persists_after_reopen() {
     let path = dir.path();
 
     {
-        let db = HelixiteBuilder::default().open(path).unwrap();
+        let db = HelixiteBuilder::new().open(path).unwrap();
         db.add_node(
             "Chunk",
             vec![("text".to_string(), Value::String("hello".to_string()))],
@@ -58,7 +58,7 @@ fn test_node_persists_after_reopen() {
         .unwrap();
     }
 
-    let db = HelixiteBuilder::default().open(path).unwrap();
+    let db = HelixiteBuilder::new().open(path).unwrap();
     let node = db.get_node(1).unwrap();
     assert_eq!(node.label, "Chunk");
     assert_eq!(
@@ -70,7 +70,7 @@ fn test_node_persists_after_reopen() {
 #[test]
 fn test_multiple_nodes_get_incrementing_ids() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id1 = db.add_node("A", Vec::new()).unwrap();
     let id2 = db.add_node("B", Vec::new()).unwrap();
@@ -84,7 +84,7 @@ fn test_multiple_nodes_get_incrementing_ids() {
 #[test]
 fn test_mutate_node_set_property() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db
         .add_node(
@@ -108,7 +108,7 @@ fn test_mutate_node_set_property() {
 #[test]
 fn test_mutate_node_remove_property() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db
         .add_node(
@@ -133,7 +133,7 @@ fn test_mutate_node_remove_property() {
 #[test]
 fn test_mutate_node_replace_properties() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db
         .add_node(
@@ -168,7 +168,7 @@ fn test_mutate_node_replace_properties() {
 #[test]
 fn test_mutate_node_set_label() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db.add_node("User", Vec::new()).unwrap();
 
@@ -187,7 +187,7 @@ fn test_mutate_node_set_label() {
 #[test]
 fn test_mutate_node_label_and_properties() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db
         .add_node(
@@ -216,7 +216,7 @@ fn test_mutate_node_persists_after_reopen() {
     let path = dir.path();
 
     {
-        let db = HelixiteBuilder::default().open(path).unwrap();
+        let db = HelixiteBuilder::new().open(path).unwrap();
         let id = db
             .add_node(
                 "User",
@@ -231,7 +231,7 @@ fn test_mutate_node_persists_after_reopen() {
             .unwrap();
     }
 
-    let db = HelixiteBuilder::default().open(path).unwrap();
+    let db = HelixiteBuilder::new().open(path).unwrap();
     let node = db.get_node(1).unwrap();
     assert_eq!(node.label, "Person");
     assert_eq!(
@@ -243,7 +243,7 @@ fn test_mutate_node_persists_after_reopen() {
 #[test]
 fn test_mutate_nonexistent_node_errors() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let result = db.node_mut(999).apply();
     assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
@@ -252,7 +252,7 @@ fn test_mutate_nonexistent_node_errors() {
 #[test]
 fn test_mutate_node_empty_apply_is_noop() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db
         .add_node(
@@ -274,7 +274,7 @@ fn test_mutate_node_empty_apply_is_noop() {
 #[test]
 fn test_mutate_node_replace_properties_wins_over_set_property() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db
         .add_node(
@@ -299,7 +299,7 @@ fn test_mutate_node_replace_properties_wins_over_set_property() {
 #[test]
 fn test_mutate_node_set_property_wins_over_remove_property() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db
         .add_node(
@@ -324,7 +324,7 @@ fn test_mutate_node_set_property_wins_over_remove_property() {
 #[test]
 fn test_mutate_node_label_remove_property_set_property_combined() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id = db
         .add_node(
@@ -367,7 +367,7 @@ fn test_mutate_node_label_with_vector_and_scalar_property_change() {
     use helixite::HnswConfig;
 
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()

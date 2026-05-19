@@ -4,7 +4,7 @@ use tempfile::tempdir;
 #[test]
 fn test_create_vector_index() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -18,14 +18,14 @@ fn test_vector_index_persists_after_reopen() {
     let path = dir.path();
 
     {
-        let db = HelixiteBuilder::default().open(path).unwrap();
+        let db = HelixiteBuilder::new().open(path).unwrap();
         db.indexes()
             .vectors()
             .create("Chunk", "embedding", 3, HnswConfig::default())
             .unwrap();
     }
 
-    let db = HelixiteBuilder::default().open(path).unwrap();
+    let db = HelixiteBuilder::new().open(path).unwrap();
     let result = db
         .nodes()
         .label("Chunk")
@@ -38,7 +38,7 @@ fn test_vector_index_persists_after_reopen() {
 #[test]
 fn test_add_node_with_vector() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -59,7 +59,7 @@ fn test_add_node_with_vector() {
 #[test]
 fn test_nearest_returns_ordered_results() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -96,7 +96,7 @@ fn test_nearest_returns_ordered_results() {
 #[test]
 fn test_nearest_with_k_limit() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -127,7 +127,7 @@ fn test_nearest_with_k_limit() {
 #[test]
 fn test_nearest_empty_index() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -147,7 +147,7 @@ fn test_nearest_empty_index() {
 #[test]
 fn test_nearest_requires_label() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -170,7 +170,7 @@ fn test_nearest_requires_label() {
 #[test]
 fn test_nearest_requires_existing_index() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.add_node(
         "Chunk",
@@ -189,7 +189,7 @@ fn test_nearest_requires_existing_index() {
 #[test]
 fn test_dimension_mismatch_on_insert() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -206,7 +206,7 @@ fn test_dimension_mismatch_on_insert() {
 #[test]
 fn test_dimension_mismatch_on_search() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -230,7 +230,7 @@ fn test_dimension_mismatch_on_search() {
 #[test]
 fn test_nearest_with_property_filter() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -262,6 +262,11 @@ fn test_nearest_with_property_filter() {
     )
     .unwrap();
 
+    db.indexes()
+        .nodes()
+        .create_property("Chunk", "status")
+        .unwrap();
+
     let active_ids = db
         .nodes()
         .label("Chunk")
@@ -279,7 +284,7 @@ fn test_nearest_persists_after_reopen() {
     let path = dir.path();
 
     {
-        let db = HelixiteBuilder::default().open(path).unwrap();
+        let db = HelixiteBuilder::new().open(path).unwrap();
         db.indexes()
             .vectors()
             .create("Chunk", "embedding", 3, HnswConfig::default())
@@ -291,7 +296,7 @@ fn test_nearest_persists_after_reopen() {
         .unwrap();
     }
 
-    let db = HelixiteBuilder::default().open(path).unwrap();
+    let db = HelixiteBuilder::new().open(path).unwrap();
     let ids = db
         .nodes()
         .label("Chunk")
@@ -305,7 +310,7 @@ fn test_nearest_persists_after_reopen() {
 #[test]
 fn test_multiple_vector_indexes() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -348,7 +353,7 @@ fn test_multiple_vector_indexes() {
 #[test]
 fn test_nearest_collect_preserves_order() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -385,7 +390,7 @@ fn test_nearest_collect_preserves_order() {
 #[test]
 fn test_mutate_node_vector_property() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -418,7 +423,7 @@ fn test_mutate_node_vector_property() {
 #[test]
 fn test_mutate_node_remove_vector_property() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()
@@ -450,7 +455,7 @@ fn test_mutate_node_remove_vector_property() {
 #[test]
 fn test_mutate_node_label_with_vector_property() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.indexes()
         .vectors()

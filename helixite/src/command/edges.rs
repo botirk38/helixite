@@ -8,6 +8,8 @@ use crate::storage::engine::Db;
 use crate::value::Value;
 
 use crate::index::edges::EdgeIndex;
+use crate::index::properties::EdgePropertyIndexes;
+use crate::index::properties::PropertyIndexRegistry;
 
 pub struct EdgeCommand<'a, S: StorageEngine> {
     db: &'a crate::db::Helixite<S>,
@@ -77,6 +79,8 @@ impl<'a, S: StorageEngine> EdgeCommand<'a, S> {
         }
 
         self.db.storage().write(|txn| {
+            let registered = PropertyIndexRegistry::load_edges_from_txn(txn)?;
+
             if label != current.label {
                 EdgeIndex::replace_label(
                     txn,
@@ -95,6 +99,8 @@ impl<'a, S: StorageEngine> EdgeCommand<'a, S> {
                 label: label.clone(),
                 properties,
             };
+
+            EdgePropertyIndexes::replace(txn, &registered, &current, &updated)?;
 
             let bytes =
                 bincode::serialize(&updated).map_err(|e| HelixiteError::Codec(e.to_string()))?;

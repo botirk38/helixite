@@ -1,12 +1,9 @@
-use crate::error::{HelixiteError, Result};
+use crate::error::Result;
 use crate::storage::StorageEngine;
-use crate::storage::engine::Db;
 
-use crate::index::labels::LabelIndex;
+use crate::index::properties::EdgePropertyIndexes;
+use crate::index::properties::NodePropertyIndexes;
 use crate::index::vector::{HnswConfig, VectorIndex};
-
-const NODE_PROPERTY_INDEX_PREFIX: &str = "node_property_index";
-const EDGE_PROPERTY_INDEX_PREFIX: &str = "edge_property_index";
 
 pub struct IndexManager<'a, S: StorageEngine> {
     storage: &'a S,
@@ -62,102 +59,20 @@ impl<'a, S: StorageEngine> VectorIndexManager<'a, S> {
 
 impl<'a, S: StorageEngine> NodeIndexManager<'a, S> {
     pub fn create_property(&self, label: &str, property: &str) -> Result<()> {
-        if !self.label_exists(label)? {
-            return Err(HelixiteError::LabelNotFound(label.to_string()));
-        }
-
-        if self.property_index_exists(label, property)? {
-            return Err(HelixiteError::DuplicateKey(format!(
-                "node property index {label}::{property} already exists"
-            )));
-        }
-
-        self.register_property_index(label, property)
+        NodePropertyIndexes::create(self.storage, label, property)
     }
 
     pub fn drop_property(&self, label: &str, property: &str) -> Result<()> {
-        if !self.property_index_exists(label, property)? {
-            return Err(HelixiteError::IndexNotFound(format!(
-                "node property index {label}::{property}"
-            )));
-        }
-
-        self.unregister_property_index(label, property)
-    }
-
-    fn label_exists(&self, label: &str) -> Result<bool> {
-        let prefix = LabelIndex::prefix(label);
-        let entries = self.storage.scan_prefix(Db::Labels, &prefix)?;
-        Ok(!entries.is_empty())
-    }
-
-    fn property_index_exists(&self, label: &str, property: &str) -> Result<bool> {
-        let key = Self::property_index_key(label, property);
-        match self.storage.get(Db::Metadata, &key)? {
-            Some(_) => Ok(true),
-            None => Ok(false),
-        }
-    }
-
-    fn register_property_index(&self, label: &str, property: &str) -> Result<()> {
-        let key = Self::property_index_key(label, property);
-        self.storage
-            .write(|txn| txn.put(Db::Metadata, &key, &[]))
-    }
-
-    fn unregister_property_index(&self, label: &str, property: &str) -> Result<()> {
-        let key = Self::property_index_key(label, property);
-        self.storage
-            .write(|txn| txn.delete(Db::Metadata, &key))
-    }
-
-    fn property_index_key(label: &str, property: &str) -> Vec<u8> {
-        format!("{}::{}::{}", NODE_PROPERTY_INDEX_PREFIX, label, property).into_bytes()
+        NodePropertyIndexes::drop(self.storage, label, property)
     }
 }
 
 impl<'a, S: StorageEngine> EdgeIndexManager<'a, S> {
     pub fn create_property(&self, label: &str, property: &str) -> Result<()> {
-        if self.property_index_exists(label, property)? {
-            return Err(HelixiteError::DuplicateKey(format!(
-                "edge property index {label}::{property} already exists"
-            )));
-        }
-
-        self.register_property_index(label, property)
+        EdgePropertyIndexes::create(self.storage, label, property)
     }
 
     pub fn drop_property(&self, label: &str, property: &str) -> Result<()> {
-        if !self.property_index_exists(label, property)? {
-            return Err(HelixiteError::IndexNotFound(format!(
-                "edge property index {label}::{property}"
-            )));
-        }
-
-        self.unregister_property_index(label, property)
-    }
-
-    fn property_index_exists(&self, label: &str, property: &str) -> Result<bool> {
-        let key = Self::property_index_key(label, property);
-        match self.storage.get(Db::Metadata, &key)? {
-            Some(_) => Ok(true),
-            None => Ok(false),
-        }
-    }
-
-    fn register_property_index(&self, label: &str, property: &str) -> Result<()> {
-        let key = Self::property_index_key(label, property);
-        self.storage
-            .write(|txn| txn.put(Db::Metadata, &key, &[]))
-    }
-
-    fn unregister_property_index(&self, label: &str, property: &str) -> Result<()> {
-        let key = Self::property_index_key(label, property);
-        self.storage
-            .write(|txn| txn.delete(Db::Metadata, &key))
-    }
-
-    fn property_index_key(label: &str, property: &str) -> Vec<u8> {
-        format!("{}::{}::{}", EDGE_PROPERTY_INDEX_PREFIX, label, property).into_bytes()
+        EdgePropertyIndexes::drop(self.storage, label, property)
     }
 }

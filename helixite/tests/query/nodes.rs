@@ -4,7 +4,7 @@ use tempfile::tempdir;
 #[test]
 fn test_nodes_by_label() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.add_node(
         "User",
@@ -33,7 +33,7 @@ fn test_nodes_by_label() {
 #[test]
 fn test_nodes_by_label_empty() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let result = db.nodes().label("NonExistent").collect().unwrap();
     assert_eq!(result.len(), 0);
@@ -42,7 +42,7 @@ fn test_nodes_by_label_empty() {
 #[test]
 fn test_nodes_by_property() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.add_node(
         "User",
@@ -69,8 +69,14 @@ fn test_nodes_by_property() {
     )
     .unwrap();
 
+    db.indexes()
+        .nodes()
+        .create_property("User", "name")
+        .unwrap();
+
     let alices = db
         .nodes()
+        .label("User")
         .where_eq("name", Value::String("Alice".to_string()))
         .collect()
         .unwrap();
@@ -78,6 +84,7 @@ fn test_nodes_by_property() {
 
     let bob = db
         .nodes()
+        .label("User")
         .where_eq("name", Value::String("Bob".to_string()))
         .collect()
         .unwrap();
@@ -91,7 +98,7 @@ fn test_nodes_by_property() {
 #[test]
 fn test_nodes_by_property_with_label() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.add_node(
         "User",
@@ -103,6 +110,15 @@ fn test_nodes_by_property_with_label() {
         vec![("name".to_string(), Value::String("Alice".to_string()))],
     )
     .unwrap();
+
+    db.indexes()
+        .nodes()
+        .create_property("User", "name")
+        .unwrap();
+    db.indexes()
+        .nodes()
+        .create_property("Post", "name")
+        .unwrap();
 
     let users = db
         .nodes()
@@ -126,7 +142,7 @@ fn test_nodes_by_property_with_label() {
 #[test]
 fn test_nodes_count() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.add_node("User", Vec::new()).unwrap();
     db.add_node("User", Vec::new()).unwrap();
@@ -142,7 +158,7 @@ fn test_nodes_count() {
 #[test]
 fn test_nodes_ids() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     let id1 = db.add_node("User", Vec::new()).unwrap();
     let id2 = db.add_node("User", Vec::new()).unwrap();
@@ -156,7 +172,7 @@ fn test_nodes_ids() {
 #[test]
 fn test_multi_index_intersection() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.add_node(
         "User",
@@ -186,8 +202,19 @@ fn test_multi_index_intersection() {
     )
     .unwrap();
 
+    db.indexes()
+        .nodes()
+        .create_property("User", "name")
+        .unwrap();
+    db.indexes().nodes().create_property("User", "age").unwrap();
+    db.indexes()
+        .nodes()
+        .create_property("User", "city")
+        .unwrap();
+
     let result = db
         .nodes()
+        .label("User")
         .where_eq("name", Value::String("Alice".to_string()))
         .where_eq("age", Value::Int(30))
         .collect()
@@ -200,6 +227,7 @@ fn test_multi_index_intersection() {
 
     let result = db
         .nodes()
+        .label("User")
         .where_eq("age", Value::Int(30))
         .where_eq("city", Value::String("NYC".to_string()))
         .collect()
@@ -208,6 +236,7 @@ fn test_multi_index_intersection() {
 
     let result = db
         .nodes()
+        .label("User")
         .where_eq("name", Value::String("Alice".to_string()))
         .where_eq("age", Value::Int(30))
         .where_eq("city", Value::String("NYC".to_string()))
@@ -217,6 +246,7 @@ fn test_multi_index_intersection() {
 
     let result = db
         .nodes()
+        .label("User")
         .where_eq("name", Value::String("Alice".to_string()))
         .where_eq("age", Value::Int(99))
         .collect()
@@ -230,7 +260,7 @@ fn test_nodes_property_persists_after_reopen() {
     let path = dir.path();
 
     {
-        let db = HelixiteBuilder::default().open(path).unwrap();
+        let db = HelixiteBuilder::new().open(path).unwrap();
         db.add_node(
             "User",
             vec![("name".to_string(), Value::String("Alice".to_string()))],
@@ -241,16 +271,133 @@ fn test_nodes_property_persists_after_reopen() {
             vec![("name".to_string(), Value::String("Bob".to_string()))],
         )
         .unwrap();
+        db.indexes()
+            .nodes()
+            .create_property("User", "name")
+            .unwrap();
     }
 
-    let db = HelixiteBuilder::default().open(path).unwrap();
+    let db = HelixiteBuilder::new().open(path).unwrap();
     let users = db.nodes().label("User").collect().unwrap();
     assert_eq!(users.len(), 2);
 
     let alices = db
         .nodes()
+        .label("User")
         .where_eq("name", Value::String("Alice".to_string()))
         .collect()
         .unwrap();
     assert_eq!(alices.len(), 1);
+}
+
+#[test]
+fn test_node_label_change_preserves_indexed_property() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Alice".to_string()))],
+        )
+        .unwrap();
+
+    db.indexes()
+        .nodes()
+        .create_property("User", "name")
+        .unwrap();
+
+    db.add_node("Person", Vec::new()).unwrap();
+    db.indexes()
+        .nodes()
+        .create_property("Person", "name")
+        .unwrap();
+
+    db.node_mut(id).set_label("Person").apply().unwrap();
+
+    let users = db
+        .nodes()
+        .label("User")
+        .where_eq("name", Value::String("Alice".to_string()))
+        .collect()
+        .unwrap();
+    assert!(users.is_empty());
+
+    let persons = db
+        .nodes()
+        .label("Person")
+        .where_eq("name", Value::String("Alice".to_string()))
+        .collect()
+        .unwrap();
+    assert_eq!(persons.len(), 1);
+    assert_eq!(persons[0].id, id);
+}
+
+#[test]
+fn test_node_label_change_with_both_indexes() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Alice".to_string()))],
+        )
+        .unwrap();
+
+    db.indexes()
+        .nodes()
+        .create_property("User", "name")
+        .unwrap();
+
+    db.add_node("Person", Vec::new()).unwrap();
+    db.indexes()
+        .nodes()
+        .create_property("Person", "name")
+        .unwrap();
+
+    db.node_mut(id).set_label("Person").apply().unwrap();
+
+    let persons = db
+        .nodes()
+        .label("Person")
+        .where_eq("name", Value::String("Alice".to_string()))
+        .count()
+        .unwrap();
+    assert_eq!(persons, 1);
+
+    let users = db
+        .nodes()
+        .label("User")
+        .where_eq("name", Value::String("Alice".to_string()))
+        .count()
+        .unwrap();
+    assert_eq!(users, 0);
+}
+
+#[test]
+fn test_float_negative_zero_indexed_as_positive_zero() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "Measurement",
+            vec![("value".to_string(), Value::Float(-0.0))],
+        )
+        .unwrap();
+
+    db.indexes()
+        .nodes()
+        .create_property("Measurement", "value")
+        .unwrap();
+
+    let results = db
+        .nodes()
+        .label("Measurement")
+        .where_eq("value", Value::Float(0.0))
+        .collect()
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].id, id);
 }

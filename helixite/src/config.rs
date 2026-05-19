@@ -8,7 +8,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            // 1 GB default map size
             map_size: 1024 * 1024 * 1024,
             max_dbs: 32,
             max_readers: 126,
