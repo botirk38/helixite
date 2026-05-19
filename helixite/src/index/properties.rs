@@ -152,15 +152,15 @@ impl PropertyIndexRegistry {
             .is_some_and(|props| props.contains(property))
     }
 
-    pub(crate) fn load_nodes_from_txn(txn: &mut dyn StorageTxn) -> crate::error::Result<Self> {
+    pub(crate) fn load_nodes_from_txn(txn: &dyn StorageTxn) -> crate::error::Result<Self> {
         Self::load_from_txn(txn, PropertyIndexMetadata::node_prefix())
     }
 
-    pub(crate) fn load_edges_from_txn(txn: &mut dyn StorageTxn) -> crate::error::Result<Self> {
+    pub(crate) fn load_edges_from_txn(txn: &dyn StorageTxn) -> crate::error::Result<Self> {
         Self::load_from_txn(txn, PropertyIndexMetadata::edge_prefix())
     }
 
-    fn load_from_txn(txn: &mut dyn StorageTxn, prefix: Vec<u8>) -> crate::error::Result<Self> {
+    fn load_from_txn(txn: &dyn StorageTxn, prefix: Vec<u8>) -> crate::error::Result<Self> {
         let entries = txn.scan_prefix(Db::Metadata, &prefix)?;
 
         let mut indexes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();

@@ -17,7 +17,7 @@ pub(crate) struct NodeIndexes;
 
 impl NodeIndexes {
     pub(crate) fn validate_from_txn(
-        txn: &mut dyn StorageTxn,
+        txn: &dyn StorageTxn,
         label: &str,
         properties: &BTreeMap<String, Value>,
     ) -> Result<()> {
