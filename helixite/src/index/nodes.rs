@@ -91,8 +91,7 @@ impl NodeIndexes {
 
             for (prop_name, value) in new_props {
                 if let Value::Vector(vector) = value {
-                    let Ok(meta) = VectorIndex::load_meta(txn, new_label, prop_name)
-                    else {
+                    let Ok(meta) = VectorIndex::load_meta(txn, new_label, prop_name) else {
                         continue;
                     };
                     VectorIndex::insert(txn, new_label, prop_name, id, vector, &meta)?;
@@ -147,8 +146,7 @@ impl NodeIndexes {
                 }
 
                 if let Value::Vector(vector) = new_value {
-                    let Ok(meta) = VectorIndex::load_meta(txn, new_label, prop_name)
-                    else {
+                    let Ok(meta) = VectorIndex::load_meta(txn, new_label, prop_name) else {
                         continue;
                     };
                     VectorIndex::delete(txn, new_label, prop_name, id, &meta)?;

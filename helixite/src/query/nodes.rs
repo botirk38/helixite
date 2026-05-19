@@ -124,14 +124,8 @@ impl NodeQueryExec<'_> {
             } else {
                 vs.k * 10
             };
-            let mut results = VectorIndex::search(
-                self.txn,
-                label,
-                &vs.property,
-                &vs.query,
-                search_k,
-                &meta,
-            )?;
+            let mut results =
+                VectorIndex::search(self.txn, label, &vs.property, &vs.query, search_k, &meta)?;
 
             if !self.filters.is_empty() {
                 let filter_ids = self.resolve_filter_ids()?;

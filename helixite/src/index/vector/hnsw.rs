@@ -318,8 +318,7 @@ fn search_layer(txn: &dyn ReadTxn, entry: NodeId, ctx: &SearchCtx<'_>) -> Result
             break;
         }
 
-        let neighbors =
-            load_neighbors(txn, ctx.label, ctx.property, ctx.level, candidate.node_id)?;
+        let neighbors = load_neighbors(txn, ctx.label, ctx.property, ctx.level, candidate.node_id)?;
         for neighbor_id in neighbors {
             if !visited.contains(&neighbor_id) {
                 visited.insert(neighbor_id);
