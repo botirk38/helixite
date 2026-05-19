@@ -172,6 +172,20 @@ impl<S: StorageEngine> Helixite<S> {
         EdgeCommand::new(self, id)
     }
 
+    pub fn delete_edge(&self, id: EdgeId) -> Result<()> {
+        let edge = self.get_edge(id)?;
+
+        self.storage.write(|txn| {
+            let registered = PropertyIndexRegistry::load_edges_from_txn(txn)?;
+
+            EdgeIndex::delete(txn, edge.from, edge.to, &edge.label, edge.id)?;
+            EdgePropertyIndexes::delete(txn, &registered, &edge)?;
+            txn.delete(Db::Edges, &edge.id.to_be_bytes())?;
+
+            Ok(())
+        })
+    }
+
     pub fn nodes(&self) -> NodeQuery<'_, S> {
         NodeQuery::new(&self.storage)
     }

@@ -374,6 +374,21 @@ impl EdgePropertyIndexes {
         Ok(())
     }
 
+    pub(crate) fn delete(
+        txn: &mut dyn StorageTxn,
+        registry: &PropertyIndexRegistry,
+        edge: &Edge,
+    ) -> Result<()> {
+        for (prop_name, value) in &edge.properties {
+            if registry.contains(&edge.label, prop_name)
+                && let Some(key) = EdgePropertyIndex::key(&edge.label, prop_name, value, edge.id)
+            {
+                txn.delete(Db::Properties, &key)?;
+            }
+        }
+        Ok(())
+    }
+
     fn label_exists(txn: &mut dyn StorageTxn, label: &str) -> Result<bool> {
         let entries = txn.iter_all(Db::Edges)?;
         for (_, value) in entries {
