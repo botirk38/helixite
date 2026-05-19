@@ -416,3 +416,190 @@ fn test_mutate_node_label_with_vector_and_scalar_property_change() {
     assert_eq!(doc_ids.len(), 1);
     assert_eq!(doc_ids[0], id);
 }
+
+#[test]
+fn test_delete_node() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Alice".to_string()))],
+        )
+        .unwrap();
+
+    db.delete_node(id).unwrap();
+
+    let result = db.get_node(id);
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(_))));
+}
+
+#[test]
+fn test_delete_nonexistent_node_errors() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let result = db.delete_node(999);
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
+}
+
+#[test]
+fn test_delete_node_cascades_to_outgoing_edges() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, c, "knows", Vec::new()).unwrap();
+
+    db.delete_node(a).unwrap();
+
+    let out = db.node(b).in_("knows").collect_edges().unwrap();
+    assert!(out.is_empty());
+
+    let out = db.node(c).in_("knows").collect_edges().unwrap();
+    assert!(out.is_empty());
+}
+
+#[test]
+fn test_delete_node_cascades_to_incoming_edges() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    db.add_edge(a, c, "knows", Vec::new()).unwrap();
+    db.add_edge(b, c, "knows", Vec::new()).unwrap();
+
+    db.delete_node(c).unwrap();
+
+    let out = db.node(a).out("knows").collect_edges().unwrap();
+    assert!(out.is_empty());
+
+    let out = db.node(b).out("knows").collect_edges().unwrap();
+    assert!(out.is_empty());
+}
+
+#[test]
+fn test_delete_node_removes_from_label_query() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id = db.add_node("User", Vec::new()).unwrap();
+    db.add_node("User", Vec::new()).unwrap();
+
+    let users = db.nodes().label("User").collect().unwrap();
+    assert_eq!(users.len(), 2);
+
+    db.delete_node(id).unwrap();
+
+    let users = db.nodes().label("User").collect().unwrap();
+    assert_eq!(users.len(), 1);
+}
+
+#[test]
+fn test_delete_node_removes_indexed_property_entries() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Alice".to_string()))],
+        )
+        .unwrap();
+    db.add_node(
+        "User",
+        vec![("name".to_string(), Value::String("Bob".to_string()))],
+    )
+    .unwrap();
+
+    db.indexes()
+        .nodes()
+        .create_property("User", "name")
+        .unwrap();
+
+    let alices = db
+        .nodes()
+        .label("User")
+        .where_eq("name", Value::String("Alice".to_string()))
+        .collect()
+        .unwrap();
+    assert_eq!(alices.len(), 1);
+
+    db.delete_node(id).unwrap();
+
+    let alices = db
+        .nodes()
+        .label("User")
+        .where_eq("name", Value::String("Alice".to_string()))
+        .collect()
+        .unwrap();
+    assert_eq!(alices.len(), 0);
+}
+
+#[test]
+fn test_delete_node_cascades_to_indexed_edges() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", [("weight".to_string(), Value::Float(1.0))])
+        .unwrap();
+
+    db.indexes()
+        .edges()
+        .create_property("knows", "weight")
+        .unwrap();
+
+    let edges = db
+        .node(a)
+        .out("knows")
+        .where_eq("weight", Value::Float(1.0))
+        .collect_edges()
+        .unwrap();
+    assert_eq!(edges.len(), 1);
+
+    db.delete_node(a).unwrap();
+
+    let edges = db
+        .node(b)
+        .in_("knows")
+        .where_eq("weight", Value::Float(1.0))
+        .collect_edges()
+        .unwrap();
+    assert_eq!(edges.len(), 0);
+}
+
+#[test]
+fn test_delete_node_persists_after_reopen() {
+    let dir = tempdir().unwrap();
+    let path = dir.path();
+
+    {
+        let db = HelixiteBuilder::new().open(path).unwrap();
+
+        let a = db.add_node("A", Vec::new()).unwrap();
+        let b = db.add_node("B", Vec::new()).unwrap();
+
+        db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+        db.delete_node(a).unwrap();
+    }
+
+    let db = HelixiteBuilder::new().open(path).unwrap();
+
+    let result = db.get_node(1);
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(1))));
+
+    let out = db.node(2).in_("knows").collect_edges().unwrap();
+    assert!(out.is_empty());
+}
