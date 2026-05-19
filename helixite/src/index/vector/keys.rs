@@ -63,6 +63,15 @@ pub(crate) fn lnk_prefix(label: &str, property: &str, level: u8, node_id: NodeId
         .finish()
 }
 
+pub(crate) fn lnk_level_prefix(label: &str, property: &str, level: u8) -> Vec<u8> {
+    KeyBuilder::new()
+        .u8(LNK_PREFIX)
+        .str(label)
+        .str(property)
+        .u8(level)
+        .finish()
+}
+
 pub(crate) fn ep_key(label: &str, property: &str) -> Vec<u8> {
     KeyBuilder::new()
         .u8(EP_PREFIX)

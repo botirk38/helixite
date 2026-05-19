@@ -20,8 +20,4 @@ impl LabelIndex {
         reader.finish()?;
         Some(id)
     }
-
-    pub(crate) fn new_label_key(new_label: &str, node_id: NodeId) -> Vec<u8> {
-        Self::key(new_label, node_id)
-    }
 }

@@ -161,15 +161,16 @@ impl Hnsw {
                 txn.delete(Db::VectorIndexes, &key)?;
             }
 
-            let neighbor_prefix = lnk_prefix(label, property, l, 0);
-            let all_links = txn.scan_prefix(Db::VectorIndexes, &neighbor_prefix)?;
+            let level_prefix = lnk_level_prefix(label, property, l);
+            let all_links = txn.scan_prefix(Db::VectorIndexes, &level_prefix)?;
             for (key, _) in all_links {
-                if let Some((link_level, neighbor, target)) = decode_link_from_lnk_key(&key)
-                    && target == node_id
-                {
-                    let full_key = lnk_key(label, property, link_level, neighbor, target);
-                    txn.delete(Db::VectorIndexes, &full_key)?;
+                let Some((_, _, target)) = decode_link_from_lnk_key(&key) else {
+                    continue;
+                };
+                if target != node_id {
+                    continue;
                 }
+                txn.delete(Db::VectorIndexes, &key)?;
             }
         }
 
@@ -182,16 +183,20 @@ impl Hnsw {
 
             let all_vecs = txn.scan_prefix(Db::VectorIndexes, &vec_prefix(label, property))?;
             for (key, _) in all_vecs {
-                if let Some(nid) = decode_node_id_from_vec_key(&key)
-                    && nid != node_id
-                    && let Some(lvl_bytes) =
-                        txn.get(Db::VectorIndexes, &lvl_key(label, property, nid))?
-                {
-                    let lvl = lvl_bytes[0];
-                    if lvl > new_max_level {
-                        new_max_level = lvl;
-                        new_ep = Some(nid);
-                    }
+                let Some(nid) = decode_node_id_from_vec_key(&key) else {
+                    continue;
+                };
+                if nid == node_id {
+                    continue;
+                }
+                let Some(lvl_bytes) = txn.get(Db::VectorIndexes, &lvl_key(label, property, nid))?
+                else {
+                    continue;
+                };
+                let lvl = lvl_bytes[0];
+                if lvl > new_max_level {
+                    new_max_level = lvl;
+                    new_ep = Some(nid);
                 }
             }
 

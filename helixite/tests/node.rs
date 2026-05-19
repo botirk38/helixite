@@ -82,7 +82,31 @@ fn test_multiple_nodes_get_incrementing_ids() {
 }
 
 #[test]
-fn test_update_node_properties() {
+fn test_mutate_node_set_property() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Alice".to_string()))],
+        )
+        .unwrap();
+
+    db.node_mut(id)
+        .set_property("name", Value::String("Bob".into()))
+        .apply()
+        .unwrap();
+
+    let node = db.get_node(id).unwrap();
+    assert_eq!(
+        node.properties.get("name"),
+        Some(&Value::String("Bob".to_string()))
+    );
+}
+
+#[test]
+fn test_mutate_node_remove_property() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
@@ -96,15 +120,38 @@ fn test_update_node_properties() {
         )
         .unwrap();
 
-    db.update_node(
-        id,
-        None::<String>,
-        Some(vec![
-            ("name".to_string(), Value::String("Bob".to_string())),
-            ("city".to_string(), Value::String("NYC".to_string())),
-        ]),
-    )
-    .unwrap();
+    db.node_mut(id).remove_property("age").apply().unwrap();
+
+    let node = db.get_node(id).unwrap();
+    assert_eq!(node.properties.get("age"), None);
+    assert_eq!(
+        node.properties.get("name"),
+        Some(&Value::String("Alice".to_string()))
+    );
+}
+
+#[test]
+fn test_mutate_node_replace_properties() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            vec![
+                ("name".to_string(), Value::String("Alice".to_string())),
+                ("age".to_string(), Value::Int(30)),
+            ],
+        )
+        .unwrap();
+
+    db.node_mut(id)
+        .replace_properties(vec![
+            ("name".to_string(), Value::String("Bob".into())),
+            ("city".to_string(), Value::String("NYC".into())),
+        ])
+        .apply()
+        .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(
@@ -119,14 +166,13 @@ fn test_update_node_properties() {
 }
 
 #[test]
-fn test_update_node_label() {
+fn test_mutate_node_set_label() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
     let id = db.add_node("User", Vec::new()).unwrap();
 
-    db.update_node(id, Some("Person"), None::<Vec<(String, Value)>>)
-        .unwrap();
+    db.node_mut(id).set_label("Person").apply().unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(node.label, "Person");
@@ -139,7 +185,7 @@ fn test_update_node_label() {
 }
 
 #[test]
-fn test_update_node_label_and_properties() {
+fn test_mutate_node_label_and_properties() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
@@ -150,12 +196,11 @@ fn test_update_node_label_and_properties() {
         )
         .unwrap();
 
-    db.update_node(
-        id,
-        Some("Person"),
-        Some(vec![("name".to_string(), Value::String("Bob".to_string()))]),
-    )
-    .unwrap();
+    db.node_mut(id)
+        .set_label("Person")
+        .set_property("name", Value::String("Bob".into()))
+        .apply()
+        .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(node.label, "Person");
@@ -166,7 +211,7 @@ fn test_update_node_label_and_properties() {
 }
 
 #[test]
-fn test_update_node_persists_after_reopen() {
+fn test_mutate_node_persists_after_reopen() {
     let dir = tempdir().unwrap();
     let path = dir.path();
 
@@ -179,12 +224,11 @@ fn test_update_node_persists_after_reopen() {
             )
             .unwrap();
 
-        db.update_node(
-            id,
-            Some("Person"),
-            Some(vec![("name".to_string(), Value::String("Bob".to_string()))]),
-        )
-        .unwrap();
+        db.node_mut(id)
+            .set_label("Person")
+            .set_property("name", Value::String("Bob".into()))
+            .apply()
+            .unwrap();
     }
 
     let db = HelixiteBuilder::default().open(path).unwrap();
@@ -197,10 +241,10 @@ fn test_update_node_persists_after_reopen() {
 }
 
 #[test]
-fn test_update_nonexistent_node_errors() {
+fn test_mutate_nonexistent_node_errors() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    let result = db.update_node(999, None::<String>, None::<Vec<(String, Value)>>);
+    let result = db.node_mut(999).apply();
     assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
 }

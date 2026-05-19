@@ -353,3 +353,101 @@ fn test_nearest_collect_preserves_order() {
     assert_eq!(nodes.len(), 3);
     assert_eq!(nodes[0].id, 1);
 }
+
+#[test]
+fn test_mutate_node_vector_property() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+        .unwrap();
+
+    let id = db
+        .add_node(
+            "Chunk",
+            vec![("embedding".to_string(), Value::Vector(vec![1.0, 0.0, 0.0]))],
+        )
+        .unwrap();
+
+    db.node_mut(id)
+        .set_property("embedding", Value::Vector(vec![0.0, 1.0, 0.0]))
+        .apply()
+        .unwrap();
+
+    let ids = db
+        .nodes()
+        .label("Chunk")
+        .nearest("embedding", vec![0.0, 1.0, 0.0], 1)
+        .ids()
+        .unwrap();
+
+    assert_eq!(ids.len(), 1);
+    assert_eq!(ids[0], id);
+}
+
+#[test]
+fn test_mutate_node_remove_vector_property() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+        .unwrap();
+
+    let id = db
+        .add_node(
+            "Chunk",
+            vec![("embedding".to_string(), Value::Vector(vec![1.0, 0.0, 0.0]))],
+        )
+        .unwrap();
+
+    db.node_mut(id)
+        .remove_property("embedding")
+        .apply()
+        .unwrap();
+
+    let ids = db
+        .nodes()
+        .label("Chunk")
+        .nearest("embedding", vec![1.0, 0.0, 0.0], 5)
+        .ids()
+        .unwrap();
+
+    assert_eq!(ids.len(), 0);
+}
+
+#[test]
+fn test_mutate_node_label_with_vector_property() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+        .unwrap();
+    db.create_vector_index("Doc", "embedding", 3, HnswConfig::default())
+        .unwrap();
+
+    let id = db
+        .add_node(
+            "Chunk",
+            vec![("embedding".to_string(), Value::Vector(vec![1.0, 0.0, 0.0]))],
+        )
+        .unwrap();
+
+    db.node_mut(id).set_label("Doc").apply().unwrap();
+
+    let chunk_ids = db
+        .nodes()
+        .label("Chunk")
+        .nearest("embedding", vec![1.0, 0.0, 0.0], 5)
+        .ids()
+        .unwrap();
+    assert_eq!(chunk_ids.len(), 0);
+
+    let doc_ids = db
+        .nodes()
+        .label("Doc")
+        .nearest("embedding", vec![1.0, 0.0, 0.0], 5)
+        .ids()
+        .unwrap();
+    assert_eq!(doc_ids.len(), 1);
+    assert_eq!(doc_ids[0], id);
+}
