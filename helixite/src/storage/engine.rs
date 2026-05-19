@@ -72,6 +72,9 @@ pub trait StorageEngine: Send + Sync {
     fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>>;
     fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
     fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
+    fn read<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&dyn StorageTxn) -> Result<T>;
     fn write<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&mut dyn StorageTxn) -> Result<T>;
