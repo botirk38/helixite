@@ -47,17 +47,11 @@ impl<'a> ReadTxn<'a> {
     }
 
     pub fn get_nodes(&self, ids: &[NodeId]) -> Result<Vec<Node>> {
-        Ok(ids
-            .iter()
-            .filter_map(|id| self.get_node(*id).ok())
-            .collect())
+        ids.iter().map(|id| self.get_node(*id)).collect()
     }
 
     pub fn get_edges(&self, ids: &[EdgeId]) -> Result<Vec<Edge>> {
-        Ok(ids
-            .iter()
-            .filter_map(|id| self.get_edge(*id).ok())
-            .collect())
+        ids.iter().map(|id| self.get_edge(*id)).collect()
     }
 }
 
