@@ -4,6 +4,7 @@ use crate::edge::{Direction, Edge};
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
+use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::engine::Db;
 use crate::value::Value;
@@ -84,12 +85,61 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
     }
 
     pub fn collect_edges(self) -> Result<Vec<Edge>> {
+        self.storage.read(|txn| {
+            let exec = TraversalExec {
+                txn,
+                node_id: self.node_id,
+                direction: self.direction,
+                label: self.label,
+                filters: self.filters,
+            };
+            exec.collect_edges()
+        })
+    }
+
+    pub fn collect_nodes(self) -> Result<Vec<Node>> {
+        self.storage.read(|txn| {
+            let exec = TraversalExec {
+                txn,
+                node_id: self.node_id,
+                direction: self.direction,
+                label: self.label,
+                filters: self.filters,
+            };
+            exec.collect_nodes()
+        })
+    }
+
+    pub fn count(self) -> Result<usize> {
+        self.storage.read(|txn| {
+            let exec = TraversalExec {
+                txn,
+                node_id: self.node_id,
+                direction: self.direction,
+                label: self.label,
+                filters: self.filters,
+            };
+            exec.count()
+        })
+    }
+}
+
+struct TraversalExec<'a> {
+    txn: &'a dyn ReadTxn,
+    node_id: NodeId,
+    direction: Direction,
+    label: Option<String>,
+    filters: Vec<EdgePropertyFilter>,
+}
+
+impl TraversalExec<'_> {
+    fn collect_edges(self) -> Result<Vec<Edge>> {
         if !self.filters.is_empty() {
             return self.collect_edges_filtered();
         }
 
         let (db, prefix) = self.prefix_and_db();
-        let entries = self.storage.scan_prefix(db, &prefix)?;
+        let entries = self.txn.scan_prefix(db, &prefix)?;
         let mut edges = Vec::with_capacity(entries.len());
 
         for (key, _) in entries {
@@ -102,13 +152,13 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
         Ok(edges)
     }
 
-    pub fn collect_nodes(self) -> Result<Vec<Node>> {
+    fn collect_nodes(self) -> Result<Vec<Node>> {
         if !self.filters.is_empty() {
             return self.collect_nodes_filtered();
         }
 
         let (db, prefix) = self.prefix_and_db();
-        let entries = self.storage.scan_prefix(db, &prefix)?;
+        let entries = self.txn.scan_prefix(db, &prefix)?;
         let mut nodes = Vec::with_capacity(entries.len());
 
         for (key, _) in entries {
@@ -121,13 +171,13 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
         Ok(nodes)
     }
 
-    pub fn count(self) -> Result<usize> {
+    fn count(self) -> Result<usize> {
         if !self.filters.is_empty() {
             return self.count_filtered();
         }
 
         let (db, prefix) = self.prefix_and_db();
-        let entries = self.storage.scan_prefix(db, &prefix)?;
+        let entries = self.txn.scan_prefix(db, &prefix)?;
         Ok(entries.len())
     }
 
@@ -221,7 +271,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
                 return Ok(BTreeSet::new());
             };
 
-            let entries = self.storage.scan_prefix(Db::Properties, &prefix)?;
+            let entries = self.txn.scan_prefix(Db::Properties, &prefix)?;
             let mut set = BTreeSet::new();
             for (key, _) in entries {
                 if let Some(edge_id) = EdgePropertyIndex::decode_edge_id(&key) {
@@ -245,7 +295,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
 
     fn scan_adjacency_ids(&self) -> Result<BTreeSet<EdgeId>> {
         let (db, prefix) = self.prefix_and_db();
-        let entries = self.storage.scan_prefix(db, &prefix)?;
+        let entries = self.txn.scan_prefix(db, &prefix)?;
         let mut ids = BTreeSet::new();
         for (key, _) in entries {
             if let Some(edge_id) = EdgeIndex::decode_edge_id(&key) {
@@ -257,7 +307,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
 
     fn is_edge_property_indexed(&self, label: &str, property: &str) -> Result<bool> {
         let key = PropertyIndexMetadata::edge_key(label, property);
-        match self.storage.get(Db::Metadata, &key)? {
+        match self.txn.get(Db::Metadata, &key)? {
             Some(_) => Ok(true),
             None => Ok(false),
         }
@@ -265,7 +315,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
 
     fn load_edge(&self, edge_id: EdgeId) -> Result<Edge> {
         let bytes = self
-            .storage
+            .txn
             .get(Db::Edges, &edge_id.to_be_bytes())?
             .ok_or(HelixiteError::EdgeNotFound(edge_id))?;
         bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))
@@ -279,7 +329,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
 
     fn load_node(&self, node_id: NodeId) -> Result<Node> {
         let bytes = self
-            .storage
+            .txn
             .get(Db::Nodes, &node_id.to_be_bytes())?
             .ok_or(HelixiteError::NodeNotFound(node_id))?;
         bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))

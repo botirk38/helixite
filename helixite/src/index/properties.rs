@@ -5,8 +5,9 @@ use crate::edge::Edge;
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
+use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
-use crate::storage::StorageTxn;
+use crate::storage::WriteTxn;
 use crate::storage::engine::Db;
 use crate::value::Value;
 
@@ -152,15 +153,15 @@ impl PropertyIndexRegistry {
             .is_some_and(|props| props.contains(property))
     }
 
-    pub(crate) fn load_nodes_from_txn(txn: &dyn StorageTxn) -> crate::error::Result<Self> {
+    pub(crate) fn load_nodes_from_txn(txn: &dyn ReadTxn) -> crate::error::Result<Self> {
         Self::load_from_txn(txn, PropertyIndexMetadata::node_prefix())
     }
 
-    pub(crate) fn load_edges_from_txn(txn: &dyn StorageTxn) -> crate::error::Result<Self> {
+    pub(crate) fn load_edges_from_txn(txn: &dyn ReadTxn) -> crate::error::Result<Self> {
         Self::load_from_txn(txn, PropertyIndexMetadata::edge_prefix())
     }
 
-    fn load_from_txn(txn: &dyn StorageTxn, prefix: Vec<u8>) -> crate::error::Result<Self> {
+    fn load_from_txn(txn: &dyn ReadTxn, prefix: Vec<u8>) -> crate::error::Result<Self> {
         let entries = txn.scan_prefix(Db::Metadata, &prefix)?;
 
         let mut indexes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -220,13 +221,13 @@ impl NodePropertyIndexes {
         })
     }
 
-    fn label_exists(txn: &mut dyn StorageTxn, label: &str) -> Result<bool> {
+    fn label_exists(txn: &dyn ReadTxn, label: &str) -> Result<bool> {
         let prefix = LabelIndex::prefix(label);
         let entries = txn.scan_prefix(Db::Labels, &prefix)?;
         Ok(!entries.is_empty())
     }
 
-    fn backfill(txn: &mut dyn StorageTxn, label: &str, property: &str) -> Result<()> {
+    fn backfill(txn: &mut dyn WriteTxn, label: &str, property: &str) -> Result<()> {
         let prefix = LabelIndex::prefix(label);
         let entries = txn.scan_prefix(Db::Labels, &prefix)?;
 
@@ -261,7 +262,7 @@ impl NodePropertyIndexes {
     }
 
     pub(crate) fn delete(
-        txn: &mut dyn StorageTxn,
+        txn: &mut dyn WriteTxn,
         registry: &PropertyIndexRegistry,
         node: &Node,
     ) -> Result<()> {
@@ -320,7 +321,7 @@ impl EdgePropertyIndexes {
     }
 
     pub(crate) fn insert(
-        txn: &mut dyn StorageTxn,
+        txn: &mut dyn WriteTxn,
         registry: &PropertyIndexRegistry,
         edge: &Edge,
     ) -> Result<()> {
@@ -335,7 +336,7 @@ impl EdgePropertyIndexes {
     }
 
     pub(crate) fn replace(
-        txn: &mut dyn StorageTxn,
+        txn: &mut dyn WriteTxn,
         registry: &PropertyIndexRegistry,
         old: &Edge,
         new: &Edge,
@@ -390,7 +391,7 @@ impl EdgePropertyIndexes {
     }
 
     pub(crate) fn delete(
-        txn: &mut dyn StorageTxn,
+        txn: &mut dyn WriteTxn,
         registry: &PropertyIndexRegistry,
         edge: &Edge,
     ) -> Result<()> {
@@ -404,7 +405,7 @@ impl EdgePropertyIndexes {
         Ok(())
     }
 
-    fn label_exists(txn: &mut dyn StorageTxn, label: &str) -> Result<bool> {
+    fn label_exists(txn: &dyn ReadTxn, label: &str) -> Result<bool> {
         let entries = txn.iter_all(Db::Edges)?;
         for (_, value) in entries {
             if let Ok(edge) = bincode::deserialize::<Edge>(&value)
@@ -416,7 +417,7 @@ impl EdgePropertyIndexes {
         Ok(false)
     }
 
-    fn backfill(txn: &mut dyn StorageTxn, label: &str, property: &str) -> Result<()> {
+    fn backfill(txn: &mut dyn WriteTxn, label: &str, property: &str) -> Result<()> {
         let entries = txn.iter_all(Db::Edges)?;
 
         for (_, value) in entries {
