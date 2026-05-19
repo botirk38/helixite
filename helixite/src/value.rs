@@ -25,7 +25,13 @@ impl Value {
                 key.extend(n.to_be_bytes());
                 Some(key)
             }
-            Value::Float(_) => None,
+            Value::Float(f) => {
+                let mut key = Vec::with_capacity(9);
+                key.push(4);
+                let canonical = if *f == 0.0 { 0.0 } else { *f };
+                key.extend(canonical.to_be_bytes());
+                Some(key)
+            }
             Value::Bool(b) => Some(vec![2, if *b { 1 } else { 0 }]),
             Value::Bytes(b) => {
                 let mut key = Vec::with_capacity(1 + b.len());

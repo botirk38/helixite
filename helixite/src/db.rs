@@ -1,23 +1,21 @@
 use std::path::{Path, PathBuf};
 
+use crate::command::{EdgeCommand, IndexManager, NodeCommand};
 use crate::config::Config;
 use crate::edge::Edge;
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
 use crate::query::{NodeQuery, NodeRefQuery};
-use crate::storage::StorageEngine;
 use crate::storage::engine::Db;
 use crate::storage::lmdb::LmdbStorage;
+use crate::storage::{IdAllocator, StorageEngine};
 use crate::value::Value;
 
 use crate::index::edges::EdgeIndex;
-use crate::index::labels::LabelIndex;
-use crate::index::properties::PropertyIndex;
-use crate::index::vector::{HnswConfig, VectorIndex};
-
-const METADATA_NEXT_NODE_ID: &[u8] = b"next_node_id";
-const METADATA_NEXT_EDGE_ID: &[u8] = b"next_edge_id";
+use crate::index::nodes::NodeIndexes;
+use crate::index::properties::EdgePropertyIndexes;
+use crate::index::properties::PropertyIndexRegistry;
 
 pub struct Helixite<S: StorageEngine = LmdbStorage> {
     path: PathBuf,
@@ -28,12 +26,17 @@ pub struct HelixiteBuilder {
     config: Config,
 }
 
-#[expect(clippy::derivable_impls)]
-impl Default for HelixiteBuilder {
-    fn default() -> Self {
+impl HelixiteBuilder {
+    pub fn new() -> Self {
         Self {
             config: Config::default(),
         }
+    }
+}
+
+impl Default for HelixiteBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -77,23 +80,12 @@ impl<S: StorageEngine> Helixite<S> {
         let properties: std::collections::BTreeMap<String, Value> =
             properties.into_iter().collect();
 
-        for (prop_name, prop_value) in &properties {
-            if let Value::Vector(vector) = prop_value
-                && let Ok(meta) = VectorIndex::load_meta(&self.storage, &label, prop_name)
-                && vector.len() != meta.dimension
-            {
-                return Err(HelixiteError::InvalidVectorDim {
-                    expected: meta.dimension,
-                    actual: vector.len(),
-                });
-            }
-        }
+        NodeIndexes::validate(&self.storage, &label, &properties)?;
 
         let node_id = self.storage.write(|txn| {
-            let next_id = match txn.get(Db::Metadata, METADATA_NEXT_NODE_ID)? {
-                Some(bytes) => decode_u64(&bytes, "next_node_id")?,
-                None => 1,
-            };
+            let registered = PropertyIndexRegistry::load_nodes_from_txn(txn)?;
+
+            let next_id = IdAllocator::next_node_id(txn)?;
 
             let node = Node {
                 id: next_id,
@@ -105,25 +97,7 @@ impl<S: StorageEngine> Helixite<S> {
                 bincode::serialize(&node).map_err(|e| HelixiteError::Codec(e.to_string()))?;
             txn.put(Db::Nodes, &next_id.to_be_bytes(), &bytes)?;
 
-            let label_k = LabelIndex::key(&label, next_id);
-            txn.put(Db::Labels, &label_k, &[])?;
-
-            for (prop_name, prop_value) in &node.properties {
-                if let Some(key) = PropertyIndex::key(prop_name, prop_value, next_id) {
-                    txn.put(Db::Properties, &key, &[])?;
-                }
-                if let Value::Vector(vector) = prop_value
-                    && let Ok(meta) = VectorIndex::load_meta_from_txn(txn, &label, prop_name)
-                {
-                    VectorIndex::insert_into_txn(txn, &label, prop_name, next_id, vector, &meta)?;
-                }
-            }
-
-            txn.put(
-                Db::Metadata,
-                METADATA_NEXT_NODE_ID,
-                &(next_id + 1).to_be_bytes(),
-            )?;
+            NodeIndexes::insert(txn, &label, next_id, &properties, &registered)?;
 
             Ok(next_id)
         })?;
@@ -142,6 +116,10 @@ impl<S: StorageEngine> Helixite<S> {
         Ok(node)
     }
 
+    pub fn node_mut(&self, id: NodeId) -> NodeCommand<'_, S> {
+        NodeCommand::new(self, id)
+    }
+
     pub fn add_edge(
         &self,
         from: NodeId,
@@ -150,38 +128,33 @@ impl<S: StorageEngine> Helixite<S> {
         properties: impl IntoIterator<Item = (String, Value)>,
     ) -> Result<EdgeId> {
         let label = label.into();
-        self.storage.write(|txn| {
-            let next_id = match txn.get(Db::Metadata, METADATA_NEXT_EDGE_ID)? {
-                Some(bytes) => decode_u64(&bytes, "next_edge_id")?,
-                None => 1,
-            };
+        let properties: std::collections::BTreeMap<String, Value> =
+            properties.into_iter().collect();
+
+        let edge_id = self.storage.write(|txn| {
+            let registered = PropertyIndexRegistry::load_edges_from_txn(txn)?;
+
+            let next_id = IdAllocator::next_edge_id(txn)?;
 
             let edge = Edge {
                 id: next_id,
                 from,
                 to,
                 label: label.clone(),
-                properties: properties.into_iter().collect(),
+                properties,
             };
 
             let bytes =
                 bincode::serialize(&edge).map_err(|e| HelixiteError::Codec(e.to_string()))?;
             txn.put(Db::Edges, &next_id.to_be_bytes(), &bytes)?;
 
-            let out_k = EdgeIndex::out_key(from, &label, next_id);
-            txn.put(Db::OutEdges, &out_k, &next_id.to_be_bytes())?;
-
-            let in_k = EdgeIndex::in_key(to, &label, next_id);
-            txn.put(Db::InEdges, &in_k, &next_id.to_be_bytes())?;
-
-            txn.put(
-                Db::Metadata,
-                METADATA_NEXT_EDGE_ID,
-                &(next_id + 1).to_be_bytes(),
-            )?;
+            EdgeIndex::insert(txn, from, to, &label, next_id)?;
+            EdgePropertyIndexes::insert(txn, &registered, &edge)?;
 
             Ok(next_id)
-        })
+        })?;
+
+        Ok(edge_id)
     }
 
     pub fn get_edge(&self, id: EdgeId) -> Result<Edge> {
@@ -195,12 +168,20 @@ impl<S: StorageEngine> Helixite<S> {
         Ok(edge)
     }
 
+    pub fn edge_mut(&self, id: EdgeId) -> EdgeCommand<'_, S> {
+        EdgeCommand::new(self, id)
+    }
+
     pub fn nodes(&self) -> NodeQuery<'_, S> {
         NodeQuery::new(&self.storage)
     }
 
     pub fn node(&self, id: NodeId) -> NodeRefQuery<'_, S> {
         NodeRefQuery::new(&self.storage, id)
+    }
+
+    pub fn indexes(&self) -> IndexManager<'_, S> {
+        IndexManager::new(&self.storage)
     }
 
     pub fn path(&self) -> &Path {
@@ -210,21 +191,4 @@ impl<S: StorageEngine> Helixite<S> {
     pub fn storage(&self) -> &S {
         &self.storage
     }
-
-    pub fn create_vector_index(
-        &self,
-        label: &str,
-        property: &str,
-        dimension: usize,
-        config: HnswConfig,
-    ) -> Result<()> {
-        VectorIndex::create(&self.storage, label, property, dimension, config)
-    }
-}
-
-fn decode_u64(bytes: &[u8], name: &str) -> Result<u64> {
-    let bytes: [u8; 8] = bytes
-        .try_into()
-        .map_err(|_| HelixiteError::Storage(format!("invalid {name} metadata value")))?;
-    Ok(u64::from_be_bytes(bytes))
 }

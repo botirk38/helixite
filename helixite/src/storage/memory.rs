@@ -46,6 +46,17 @@ impl StorageEngine for MemoryStorage {
             .collect())
     }
 
+    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        Ok(self
+            .data
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|((stored_db, _), _)| *stored_db == db)
+            .map(|((_, key), value)| (key.clone(), value.clone()))
+            .collect())
+    }
+
     fn write<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&mut dyn StorageTxn) -> Result<T>,
@@ -84,6 +95,15 @@ impl StorageTxn for MemoryTxn<'_> {
             .snapshot
             .iter()
             .filter(|((stored_db, key), _)| *stored_db == db && key.starts_with(prefix))
+            .map(|((_, key), value)| (key.clone(), value.clone()))
+            .collect())
+    }
+
+    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        Ok(self
+            .snapshot
+            .iter()
+            .filter(|((stored_db, _), _)| *stored_db == db)
             .map(|((_, key), value)| (key.clone(), value.clone()))
             .collect())
     }

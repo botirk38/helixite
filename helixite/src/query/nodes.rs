@@ -6,7 +6,8 @@ use crate::storage::engine::Db;
 use crate::value::Value;
 
 use crate::index::labels::LabelIndex;
-use crate::index::properties::PropertyIndex;
+use crate::index::properties::NodePropertyIndex;
+use crate::index::properties::PropertyIndexMetadata;
 use crate::index::vector::VectorIndex;
 
 #[derive(Debug, Clone)]
@@ -124,16 +125,40 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     }
 
     fn resolve_filter_ids(&self) -> Result<Vec<NodeId>> {
+        let label = self.label.as_ref().ok_or_else(|| {
+            HelixiteError::IndexNotFound("property filter requires a label".to_string())
+        })?;
+
         let mut id_sets: Vec<Vec<NodeId>> = Vec::with_capacity(self.filters.len());
         for filter in &self.filters {
             let PropertyFilter::Eq(property, value) = filter;
-            id_sets.push(self.scan_ids_by_property(property, value)?);
+
+            if !self.is_property_indexed(label, property)? {
+                return Err(HelixiteError::IndexNotFound(format!(
+                    "no property index for {label}::{property}"
+                )));
+            }
+
+            id_sets.push(self.scan_ids_by_property(property, value, label)?);
         }
         self.intersect_id_sets(id_sets)
     }
 
-    fn scan_ids_by_property(&self, property: &str, value: &Value) -> Result<Vec<NodeId>> {
-        let Some(prefix) = PropertyIndex::prefix(property, value) else {
+    fn is_property_indexed(&self, label: &str, property: &str) -> Result<bool> {
+        let key = PropertyIndexMetadata::node_key(label, property);
+        match self.storage.get(Db::Metadata, &key)? {
+            Some(_) => Ok(true),
+            None => Ok(false),
+        }
+    }
+
+    fn scan_ids_by_property(
+        &self,
+        property: &str,
+        value: &Value,
+        label: &str,
+    ) -> Result<Vec<NodeId>> {
+        let Some(prefix) = NodePropertyIndex::lookup_prefix(label, property, value) else {
             return Ok(Vec::new());
         };
 
@@ -141,7 +166,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
         let mut ids = Vec::new();
 
         for (key, _) in entries {
-            let node_id = PropertyIndex::decode_node_id(&key)
+            let node_id = NodePropertyIndex::decode_node_id(&key)
                 .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
             ids.push(node_id);
         }

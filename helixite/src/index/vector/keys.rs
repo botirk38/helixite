@@ -63,6 +63,15 @@ pub(crate) fn lnk_prefix(label: &str, property: &str, level: u8, node_id: NodeId
         .finish()
 }
 
+pub(crate) fn lnk_level_prefix(label: &str, property: &str, level: u8) -> Vec<u8> {
+    KeyBuilder::new()
+        .u8(LNK_PREFIX)
+        .str(label)
+        .str(property)
+        .u8(level)
+        .finish()
+}
+
 pub(crate) fn ep_key(label: &str, property: &str) -> Vec<u8> {
     KeyBuilder::new()
         .u8(EP_PREFIX)
@@ -157,4 +166,22 @@ pub(crate) fn deserialize_vector(bytes: &[u8]) -> Result<Vec<f32>> {
         vector.push(f);
     }
     Ok(vector)
+}
+
+pub(crate) fn vec_prefix(label: &str, property: &str) -> Vec<u8> {
+    KeyBuilder::new()
+        .u8(VEC_PREFIX)
+        .str(label)
+        .str(property)
+        .finish()
+}
+
+pub(crate) fn decode_node_id_from_vec_key(key: &[u8]) -> Option<NodeId> {
+    let mut reader = KeyReader::new(key);
+    reader.u8()?;
+    reader.str()?;
+    reader.str()?;
+    let id = reader.u64()?;
+    reader.finish()?;
+    Some(id)
 }

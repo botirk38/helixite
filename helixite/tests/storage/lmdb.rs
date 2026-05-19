@@ -5,7 +5,7 @@ use tempfile::tempdir;
 #[test]
 fn test_lmdb_storage_get_put_scan_delete() {
     let dir = tempdir().unwrap();
-    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
     db.storage()
         .write(|txn| {

@@ -161,6 +161,16 @@ impl VectorIndex {
         Hnsw::insert_into_txn(txn, label, property, node_id, vector, meta)
     }
 
+    pub(crate) fn delete_from_txn(
+        txn: &mut dyn crate::storage::StorageTxn,
+        label: &str,
+        property: &str,
+        node_id: NodeId,
+        meta: &VectorIndexMeta,
+    ) -> Result<()> {
+        Hnsw::delete_from_txn(txn, label, property, node_id, meta)
+    }
+
     pub(crate) fn search(
         storage: &impl StorageEngine,
         label: &str,

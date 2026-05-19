@@ -55,6 +55,18 @@ impl StorageEngine for LmdbStorage {
         Ok(results)
     }
 
+    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let rtxn = self.env.read_txn()?;
+        let database = self.database(db);
+        let iter = database.iter(&rtxn)?;
+        let mut results = Vec::new();
+        for entry in iter {
+            let (k, v) = entry?;
+            results.push((k.to_vec(), v.to_vec()));
+        }
+        Ok(results)
+    }
+
     fn write<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&mut dyn StorageTxn) -> Result<T>,
@@ -126,6 +138,17 @@ impl StorageTxn for LmdbTxn<'_> {
     fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         let database = self.database(db);
         let iter = database.prefix_iter(self.txn()?, prefix)?;
+        let mut results = Vec::new();
+        for entry in iter {
+            let (k, v) = entry?;
+            results.push((k.to_vec(), v.to_vec()));
+        }
+        Ok(results)
+    }
+
+    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let database = self.database(db);
+        let iter = database.iter(self.txn()?)?;
         let mut results = Vec::new();
         for entry in iter {
             let (k, v) = entry?;
