@@ -248,3 +248,171 @@ fn test_mutate_nonexistent_node_errors() {
     let result = db.node_mut(999).apply();
     assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
 }
+
+#[test]
+fn test_mutate_node_empty_apply_is_noop() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Alice".to_string()))],
+        )
+        .unwrap();
+
+    db.node_mut(id).apply().unwrap();
+
+    let node = db.get_node(id).unwrap();
+    assert_eq!(node.label, "User");
+    assert_eq!(
+        node.properties.get("name"),
+        Some(&Value::String("Alice".to_string()))
+    );
+}
+
+#[test]
+fn test_mutate_node_replace_properties_wins_over_set_property() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Alice".to_string()))],
+        )
+        .unwrap();
+
+    db.node_mut(id)
+        .set_property("name", Value::String("Bob".into()))
+        .replace_properties(vec![("name".to_string(), Value::String("Charlie".into()))])
+        .apply()
+        .unwrap();
+
+    let node = db.get_node(id).unwrap();
+    assert_eq!(
+        node.properties.get("name"),
+        Some(&Value::String("Charlie".to_string()))
+    );
+}
+
+#[test]
+fn test_mutate_node_set_property_wins_over_remove_property() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Alice".to_string()))],
+        )
+        .unwrap();
+
+    db.node_mut(id)
+        .remove_property("name")
+        .set_property("name", Value::String("Bob".into()))
+        .apply()
+        .unwrap();
+
+    let node = db.get_node(id).unwrap();
+    assert_eq!(
+        node.properties.get("name"),
+        Some(&Value::String("Bob".to_string()))
+    );
+}
+
+#[test]
+fn test_mutate_node_label_remove_property_set_property_combined() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            vec![
+                ("name".to_string(), Value::String("Alice".to_string())),
+                ("age".to_string(), Value::Int(30)),
+            ],
+        )
+        .unwrap();
+
+    db.node_mut(id)
+        .set_label("Person")
+        .remove_property("age")
+        .set_property("city", Value::String("NYC".into()))
+        .apply()
+        .unwrap();
+
+    let node = db.get_node(id).unwrap();
+    assert_eq!(node.label, "Person");
+    assert_eq!(node.properties.get("age"), None);
+    assert_eq!(
+        node.properties.get("name"),
+        Some(&Value::String("Alice".to_string()))
+    );
+    assert_eq!(
+        node.properties.get("city"),
+        Some(&Value::String("NYC".to_string()))
+    );
+
+    let user_ids = db.nodes().label("User").ids().unwrap();
+    assert!(user_ids.is_empty());
+
+    let person_ids = db.nodes().label("Person").ids().unwrap();
+    assert_eq!(person_ids, vec![id]);
+}
+
+#[test]
+fn test_mutate_node_label_with_vector_and_scalar_property_change() {
+    use helixite::HnswConfig;
+
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::default().open(dir.path()).unwrap();
+
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
+        .unwrap();
+    db.indexes()
+        .vectors()
+        .create("Doc", "embedding", 3, HnswConfig::default())
+        .unwrap();
+
+    let id = db
+        .add_node(
+            "Chunk",
+            vec![
+                ("embedding".to_string(), Value::Vector(vec![1.0, 0.0, 0.0])),
+                ("title".to_string(), Value::String("Intro".to_string())),
+            ],
+        )
+        .unwrap();
+
+    db.node_mut(id)
+        .set_label("Doc")
+        .set_property("title", Value::String("Updated".into()))
+        .remove_property("title")
+        .apply()
+        .unwrap();
+
+    let node = db.get_node(id).unwrap();
+    assert_eq!(node.label, "Doc");
+    assert_eq!(node.properties.get("title"), None);
+
+    let chunk_ids = db
+        .nodes()
+        .label("Chunk")
+        .nearest("embedding", vec![1.0, 0.0, 0.0], 5)
+        .ids()
+        .unwrap();
+    assert_eq!(chunk_ids.len(), 0);
+
+    let doc_ids = db
+        .nodes()
+        .label("Doc")
+        .nearest("embedding", vec![1.0, 0.0, 0.0], 5)
+        .ids()
+        .unwrap();
+    assert_eq!(doc_ids.len(), 1);
+    assert_eq!(doc_ids[0], id);
+}

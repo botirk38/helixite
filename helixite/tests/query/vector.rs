@@ -6,7 +6,9 @@ fn test_create_vector_index() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 }
 
@@ -17,7 +19,9 @@ fn test_vector_index_persists_after_reopen() {
 
     {
         let db = HelixiteBuilder::default().open(path).unwrap();
-        db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+        db.indexes()
+            .vectors()
+            .create("Chunk", "embedding", 3, HnswConfig::default())
             .unwrap();
     }
 
@@ -36,7 +40,9 @@ fn test_add_node_with_vector() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     let node_id = db
@@ -55,7 +61,9 @@ fn test_nearest_returns_ordered_results() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     db.add_node(
@@ -90,7 +98,9 @@ fn test_nearest_with_k_limit() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     for i in 0..5 {
@@ -119,7 +129,9 @@ fn test_nearest_empty_index() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     let ids = db
@@ -137,7 +149,9 @@ fn test_nearest_requires_label() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     db.add_node(
@@ -177,7 +191,9 @@ fn test_dimension_mismatch_on_insert() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     let result = db.add_node(
@@ -192,7 +208,9 @@ fn test_dimension_mismatch_on_search() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     db.add_node(
@@ -214,7 +232,9 @@ fn test_nearest_with_property_filter() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     db.add_node(
@@ -260,7 +280,9 @@ fn test_nearest_persists_after_reopen() {
 
     {
         let db = HelixiteBuilder::default().open(path).unwrap();
-        db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+        db.indexes()
+            .vectors()
+            .create("Chunk", "embedding", 3, HnswConfig::default())
             .unwrap();
         db.add_node(
             "Chunk",
@@ -285,9 +307,13 @@ fn test_multiple_vector_indexes() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
-    db.create_vector_index("Doc", "vector", 2, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Doc", "vector", 2, HnswConfig::default())
         .unwrap();
 
     db.add_node(
@@ -324,7 +350,9 @@ fn test_nearest_collect_preserves_order() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     db.add_node(
@@ -359,7 +387,9 @@ fn test_mutate_node_vector_property() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     let id = db
@@ -390,7 +420,9 @@ fn test_mutate_node_remove_vector_property() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     let id = db
@@ -420,9 +452,13 @@ fn test_mutate_node_label_with_vector_property() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::default().open(dir.path()).unwrap();
 
-    db.create_vector_index("Chunk", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
         .unwrap();
-    db.create_vector_index("Doc", "embedding", 3, HnswConfig::default())
+    db.indexes()
+        .vectors()
+        .create("Doc", "embedding", 3, HnswConfig::default())
         .unwrap();
 
     let id = db

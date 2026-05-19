@@ -1,3 +1,4 @@
+pub mod command;
 pub mod config;
 pub mod db;
 pub mod edge;
@@ -10,6 +11,7 @@ pub mod value;
 mod index;
 mod query;
 
+pub use command::{EdgeCommand, IndexManager, NodeCommand};
 pub use config::Config;
 pub use db::{Helixite, HelixiteBuilder, HelixiteStorageBuilder};
 pub use edge::{Direction, Edge};
