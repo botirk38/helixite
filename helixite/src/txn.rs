@@ -4,10 +4,12 @@ use crate::edge::Edge;
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
+use crate::storage::StorageEngine;
 use crate::storage::StorageTxn;
 use crate::storage::engine::Db;
 use crate::value::Value;
 
+use crate::db::Helixite;
 use crate::index::edges::EdgeIndex;
 use crate::index::nodes::NodeIndexes;
 use crate::index::properties::EdgePropertyIndexes;
@@ -409,4 +411,114 @@ fn next_id(txn: &mut dyn StorageTxn, key: &[u8], name: &str) -> Result<u64> {
     txn.put(Db::Metadata, key, &following_id.to_be_bytes())?;
 
     Ok(next_id)
+}
+
+pub struct NodeMutBuilder<'a, S: StorageEngine> {
+    db: &'a Helixite<S>,
+    id: NodeId,
+    ops: Vec<NodeOp>,
+}
+
+impl<S: StorageEngine> NodeMutBuilder<'_, S> {
+    pub(crate) fn new(db: &Helixite<S>, id: NodeId) -> NodeMutBuilder<'_, S> {
+        NodeMutBuilder {
+            db,
+            id,
+            ops: Vec::new(),
+        }
+    }
+
+    pub fn set_label(mut self, label: impl Into<String>) -> Self {
+        self.ops.push(NodeOp::SetLabel(label.into()));
+        self
+    }
+
+    pub fn set_property(mut self, key: impl Into<String>, value: Value) -> Self {
+        self.ops.push(NodeOp::SetProperty(key.into(), value));
+        self
+    }
+
+    pub fn remove_property(mut self, key: impl Into<String>) -> Self {
+        self.ops.push(NodeOp::RemoveProperty(key.into()));
+        self
+    }
+
+    pub fn replace_properties(
+        mut self,
+        properties: impl IntoIterator<Item = (String, Value)>,
+    ) -> Self {
+        let props: BTreeMap<String, Value> = properties.into_iter().collect();
+        self.ops.push(NodeOp::ReplaceProperties(props));
+        self
+    }
+
+    pub fn apply(self) -> Result<()> {
+        self.db.write(|tx| {
+            let mut node_mut = tx.node(self.id);
+            for op in self.ops {
+                node_mut = match op {
+                    NodeOp::SetLabel(l) => node_mut.set_label(l),
+                    NodeOp::SetProperty(k, v) => node_mut.set_property(k, v),
+                    NodeOp::RemoveProperty(k) => node_mut.remove_property(k),
+                    NodeOp::ReplaceProperties(p) => node_mut.replace_properties(p),
+                };
+            }
+            node_mut.apply()
+        })
+    }
+}
+
+pub struct EdgeMutBuilder<'a, S: StorageEngine> {
+    db: &'a Helixite<S>,
+    id: EdgeId,
+    ops: Vec<EdgeOp>,
+}
+
+impl<S: StorageEngine> EdgeMutBuilder<'_, S> {
+    pub(crate) fn new(db: &Helixite<S>, id: EdgeId) -> EdgeMutBuilder<'_, S> {
+        EdgeMutBuilder {
+            db,
+            id,
+            ops: Vec::new(),
+        }
+    }
+
+    pub fn set_label(mut self, label: impl Into<String>) -> Self {
+        self.ops.push(EdgeOp::SetLabel(label.into()));
+        self
+    }
+
+    pub fn set_property(mut self, key: impl Into<String>, value: Value) -> Self {
+        self.ops.push(EdgeOp::SetProperty(key.into(), value));
+        self
+    }
+
+    pub fn remove_property(mut self, key: impl Into<String>) -> Self {
+        self.ops.push(EdgeOp::RemoveProperty(key.into()));
+        self
+    }
+
+    pub fn replace_properties(
+        mut self,
+        properties: impl IntoIterator<Item = (String, Value)>,
+    ) -> Self {
+        let props: BTreeMap<String, Value> = properties.into_iter().collect();
+        self.ops.push(EdgeOp::ReplaceProperties(props));
+        self
+    }
+
+    pub fn apply(self) -> Result<()> {
+        self.db.write(|tx| {
+            let mut edge_mut = tx.edge(self.id);
+            for op in self.ops {
+                edge_mut = match op {
+                    EdgeOp::SetLabel(l) => edge_mut.set_label(l),
+                    EdgeOp::SetProperty(k, v) => edge_mut.set_property(k, v),
+                    EdgeOp::RemoveProperty(k) => edge_mut.remove_property(k),
+                    EdgeOp::ReplaceProperties(p) => edge_mut.replace_properties(p),
+                };
+            }
+            edge_mut.apply()
+        })
+    }
 }

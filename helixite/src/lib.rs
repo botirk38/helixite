@@ -20,5 +20,5 @@ pub use id::{EdgeId, NodeId};
 pub use index::vector::{HnswConfig, SimilarityKind};
 pub use node::Node;
 pub use query::{NodeQuery, NodeRefQuery, TraversalQuery};
-pub use txn::{EdgeMut, NodeMut, WriteTxn};
+pub use txn::{EdgeMut, EdgeMutBuilder, NodeMut, NodeMutBuilder, WriteTxn};
 pub use value::Value;
