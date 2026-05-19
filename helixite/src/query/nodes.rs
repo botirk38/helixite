@@ -21,6 +21,7 @@ pub struct NodeQuery<'a, S: StorageEngine> {
     label: Option<String>,
     filters: Vec<PropertyFilter>,
     vector_search: Option<VectorSearch>,
+    limit: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +38,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
             label: None,
             filters: Vec::new(),
             vector_search: None,
+            limit: None,
         }
     }
 
@@ -60,6 +62,16 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
         self
     }
 
+    pub fn limit(mut self, n: usize) -> Self {
+        self.limit = Some(n);
+        self
+    }
+
+    pub fn first(self) -> Result<Option<Node>> {
+        let nodes = self.limit(1).collect()?;
+        Ok(nodes.into_iter().next())
+    }
+
     pub fn collect(self) -> Result<Vec<Node>> {
         self.storage.read(|txn| {
             let exec = NodeQueryExec {
@@ -67,6 +79,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
                 label: self.label,
                 filters: self.filters,
                 vector_search: self.vector_search,
+                limit: self.limit,
             };
             exec.collect()
         })
@@ -79,6 +92,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
                 label: self.label,
                 filters: self.filters,
                 vector_search: self.vector_search,
+                limit: self.limit,
             };
             exec.resolve_ordered_ids()
         })
@@ -91,6 +105,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
                 label: self.label,
                 filters: self.filters,
                 vector_search: self.vector_search,
+                limit: self.limit,
             };
             let matching_ids = exec.resolve_ordered_ids()?;
             Ok(matching_ids.len())
@@ -103,6 +118,7 @@ struct NodeQueryExec<'a> {
     label: Option<String>,
     filters: Vec<PropertyFilter>,
     vector_search: Option<VectorSearch>,
+    limit: Option<usize>,
 }
 
 impl NodeQueryExec<'_> {
@@ -136,14 +152,22 @@ impl NodeQueryExec<'_> {
 
             results.truncate(vs.k);
 
-            return Ok(results.into_iter().map(|(id, _)| id).collect());
+            let mut ids: Vec<NodeId> = results.into_iter().map(|(id, _)| id).collect();
+            if let Some(limit) = self.limit {
+                ids.truncate(limit);
+            }
+            return Ok(ids);
         }
 
         if self.filters.is_empty() {
-            return match &self.label {
-                Some(label) => self.scan_ids_by_label(label),
-                None => self.scan_all_node_ids(),
+            let mut result = match &self.label {
+                Some(label) => self.scan_ids_by_label(label)?,
+                None => self.scan_all_node_ids()?,
             };
+            if let Some(limit) = self.limit {
+                result.truncate(limit);
+            }
+            return Ok(result);
         }
 
         let mut matching_ids = self.resolve_filter_ids()?;
@@ -153,7 +177,11 @@ impl NodeQueryExec<'_> {
             matching_ids.retain(|id| label_ids.binary_search(id).is_ok());
         }
 
-        Ok(matching_ids)
+        let mut result = matching_ids;
+        if let Some(limit) = self.limit {
+            result.truncate(limit);
+        }
+        Ok(result)
     }
 
     fn resolve_filter_ids(&self) -> Result<Vec<NodeId>> {

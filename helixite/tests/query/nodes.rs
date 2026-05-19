@@ -403,3 +403,95 @@ fn test_float_negative_zero_indexed_as_positive_zero() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, id);
 }
+
+#[test]
+fn test_nodes_first() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node(
+        "User",
+        vec![("name".to_string(), Value::String("Alice".to_string()))],
+    )
+    .unwrap();
+    db.add_node(
+        "User",
+        vec![("name".to_string(), Value::String("Bob".to_string()))],
+    )
+    .unwrap();
+
+    let node = db.nodes().label("User").first().unwrap();
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().label, "User");
+}
+
+#[test]
+fn test_nodes_first_empty() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let node = db.nodes().label("NonExistent").first().unwrap();
+    assert!(node.is_none());
+}
+
+#[test]
+fn test_nodes_limit() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    for i in 0..5 {
+        db.add_node(
+            "User",
+            vec![("name".to_string(), Value::String(format!("User{i}")))],
+        )
+        .unwrap();
+    }
+
+    let nodes = db.nodes().label("User").limit(2).collect().unwrap();
+    assert_eq!(nodes.len(), 2);
+}
+
+#[test]
+fn test_nodes_limit_with_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node(
+        "User",
+        vec![
+            ("name".to_string(), Value::String("Alice".to_string())),
+            ("age".to_string(), Value::Int(30)),
+        ],
+    )
+    .unwrap();
+    db.add_node(
+        "User",
+        vec![
+            ("name".to_string(), Value::String("Alice".to_string())),
+            ("age".to_string(), Value::Int(25)),
+        ],
+    )
+    .unwrap();
+    db.add_node(
+        "User",
+        vec![
+            ("name".to_string(), Value::String("Alice".to_string())),
+            ("age".to_string(), Value::Int(35)),
+        ],
+    )
+    .unwrap();
+
+    db.indexes()
+        .nodes()
+        .create_property("User", "name")
+        .unwrap();
+
+    let nodes = db
+        .nodes()
+        .label("User")
+        .eq("name", Value::String("Alice".to_string()))
+        .limit(2)
+        .collect()
+        .unwrap();
+    assert_eq!(nodes.len(), 2);
+}
