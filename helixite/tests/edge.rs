@@ -586,3 +586,36 @@ fn test_delete_edge_persists_after_reopen() {
     let out = db.node(1).out("knows").collect_edges().unwrap();
     assert!(out.is_empty());
 }
+
+#[test]
+fn test_get_edges_batch() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    let e1 = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    let e2 = db.add_edge(b, c, "knows", Vec::new()).unwrap();
+    let e3 = db.add_edge(a, c, "follows", Vec::new()).unwrap();
+
+    let edges = db.get_edges(&[e1, e2, e3]).unwrap();
+    assert_eq!(edges.len(), 3);
+    assert_eq!(edges[0].id, e1);
+    assert_eq!(edges[1].id, e2);
+    assert_eq!(edges[2].id, e3);
+}
+
+#[test]
+fn test_get_edges_batch_fails_on_missing() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let e1 = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let result = db.get_edges(&[e1, 999, 1000]);
+    assert!(matches!(result, Err(HelixiteError::EdgeNotFound(999))));
+}

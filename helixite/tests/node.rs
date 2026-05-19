@@ -621,3 +621,45 @@ fn test_delete_node_persists_after_reopen() {
     let out = db.node(2).in_("knows").collect_edges().unwrap();
     assert!(out.is_empty());
 }
+
+#[test]
+fn test_get_nodes_batch() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id1 = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Alice".into()))],
+        )
+        .unwrap();
+    let id2 = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Bob".into()))],
+        )
+        .unwrap();
+    let id3 = db
+        .add_node(
+            "User",
+            vec![("name".to_string(), Value::String("Carol".into()))],
+        )
+        .unwrap();
+
+    let nodes = db.get_nodes(&[id1, id2, id3]).unwrap();
+    assert_eq!(nodes.len(), 3);
+    assert_eq!(nodes[0].id, id1);
+    assert_eq!(nodes[1].id, id2);
+    assert_eq!(nodes[2].id, id3);
+}
+
+#[test]
+fn test_get_nodes_batch_fails_on_missing() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id1 = db.add_node("User", Vec::new()).unwrap();
+
+    let result = db.get_nodes(&[id1, 999, 1000]);
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
+}

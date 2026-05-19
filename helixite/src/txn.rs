@@ -19,6 +19,42 @@ pub struct WriteTxn<'a> {
     txn: &'a mut dyn StorageTxn,
 }
 
+pub struct ReadTxn<'a> {
+    txn: &'a dyn StorageTxn,
+}
+
+impl<'a> ReadTxn<'a> {
+    pub(crate) fn new(txn: &'a dyn StorageTxn) -> Self {
+        Self { txn }
+    }
+
+    pub fn get_node(&self, id: NodeId) -> Result<Node> {
+        let bytes = self
+            .txn
+            .get(Db::Nodes, &id.to_be_bytes())?
+            .ok_or(HelixiteError::NodeNotFound(id))?;
+
+        bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))
+    }
+
+    pub fn get_edge(&self, id: EdgeId) -> Result<Edge> {
+        let bytes = self
+            .txn
+            .get(Db::Edges, &id.to_be_bytes())?
+            .ok_or(HelixiteError::EdgeNotFound(id))?;
+
+        bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))
+    }
+
+    pub fn get_nodes(&self, ids: &[NodeId]) -> Result<Vec<Node>> {
+        ids.iter().map(|id| self.get_node(*id)).collect()
+    }
+
+    pub fn get_edges(&self, ids: &[EdgeId]) -> Result<Vec<Edge>> {
+        ids.iter().map(|id| self.get_edge(*id)).collect()
+    }
+}
+
 impl<'a> WriteTxn<'a> {
     pub(crate) fn new(txn: &'a mut dyn StorageTxn) -> Self {
         Self { txn }

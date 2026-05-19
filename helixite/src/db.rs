@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::Config;
+use crate::edge::Edge;
 use crate::error::Result;
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
@@ -10,7 +11,7 @@ use crate::storage::lmdb::LmdbStorage;
 use crate::value::Value;
 
 use crate::command::IndexManager;
-use crate::txn::{EdgeMutBuilder, NodeMutBuilder, WriteTxn};
+use crate::txn::{EdgeMutBuilder, NodeMutBuilder, ReadTxn, WriteTxn};
 
 pub struct Helixite<S: StorageEngine = LmdbStorage> {
     path: PathBuf,
@@ -118,6 +119,24 @@ impl<S: StorageEngine> Helixite<S> {
             let mut tx = WriteTxn::new(txn);
             f(&mut tx)
         })
+    }
+
+    pub fn read<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&ReadTxn<'_>) -> Result<T>,
+    {
+        self.storage.read(|txn| {
+            let tx = ReadTxn::new(txn);
+            f(&tx)
+        })
+    }
+
+    pub fn get_nodes(&self, ids: &[NodeId]) -> Result<Vec<Node>> {
+        self.read(|tx| tx.get_nodes(ids))
+    }
+
+    pub fn get_edges(&self, ids: &[EdgeId]) -> Result<Vec<Edge>> {
+        self.read(|tx| tx.get_edges(ids))
     }
 
     pub fn node_mut(&self, id: NodeId) -> NodeMutBuilder<'_, S> {
