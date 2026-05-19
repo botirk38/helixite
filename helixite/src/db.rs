@@ -1,21 +1,16 @@
 use std::path::{Path, PathBuf};
 
-use crate::command::{EdgeCommand, IndexManager, NodeCommand};
 use crate::config::Config;
-use crate::edge::Edge;
-use crate::error::{HelixiteError, Result};
+use crate::error::Result;
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
 use crate::query::{NodeQuery, NodeRefQuery};
-use crate::storage::engine::Db;
+use crate::storage::StorageEngine;
 use crate::storage::lmdb::LmdbStorage;
-use crate::storage::{IdAllocator, StorageEngine};
 use crate::value::Value;
 
-use crate::index::edges::EdgeIndex;
-use crate::index::nodes::NodeIndexes;
-use crate::index::properties::EdgePropertyIndexes;
-use crate::index::properties::PropertyIndexRegistry;
+use crate::command::IndexManager;
+use crate::txn::WriteTxn;
 
 pub struct Helixite<S: StorageEngine = LmdbStorage> {
     path: PathBuf,
@@ -76,48 +71,16 @@ impl<S: StorageEngine> Helixite<S> {
         label: impl Into<String>,
         properties: impl IntoIterator<Item = (String, Value)>,
     ) -> Result<NodeId> {
-        let label = label.into();
-        let properties: std::collections::BTreeMap<String, Value> =
-            properties.into_iter().collect();
-
-        NodeIndexes::validate(&self.storage, &label, &properties)?;
-
-        let node_id = self.storage.write(|txn| {
-            let registered = PropertyIndexRegistry::load_nodes_from_txn(txn)?;
-
-            let next_id = IdAllocator::next_node_id(txn)?;
-
-            let node = Node {
-                id: next_id,
-                label: label.clone(),
-                properties: properties.clone(),
-            };
-
-            let bytes =
-                bincode::serialize(&node).map_err(|e| HelixiteError::Codec(e.to_string()))?;
-            txn.put(Db::Nodes, &next_id.to_be_bytes(), &bytes)?;
-
-            NodeIndexes::insert(txn, &label, next_id, &properties, &registered)?;
-
-            Ok(next_id)
-        })?;
-
-        Ok(node_id)
+        self.write(|tx| tx.add_node(label, properties))
     }
 
     pub fn get_node(&self, id: NodeId) -> Result<Node> {
         let bytes = self
             .storage
-            .get(Db::Nodes, &id.to_be_bytes())?
-            .ok_or(HelixiteError::NodeNotFound(id))?;
+            .get(crate::storage::engine::Db::Nodes, &id.to_be_bytes())?
+            .ok_or(crate::error::HelixiteError::NodeNotFound(id))?;
 
-        let node = bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))?;
-
-        Ok(node)
-    }
-
-    pub fn node_mut(&self, id: NodeId) -> NodeCommand<'_, S> {
-        NodeCommand::new(self, id)
+        bincode::deserialize(&bytes).map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))
     }
 
     pub fn add_edge(
@@ -127,118 +90,34 @@ impl<S: StorageEngine> Helixite<S> {
         label: impl Into<String>,
         properties: impl IntoIterator<Item = (String, Value)>,
     ) -> Result<EdgeId> {
-        let label = label.into();
-        let properties: std::collections::BTreeMap<String, Value> =
-            properties.into_iter().collect();
-
-        let edge_id = self.storage.write(|txn| {
-            let registered = PropertyIndexRegistry::load_edges_from_txn(txn)?;
-
-            let next_id = IdAllocator::next_edge_id(txn)?;
-
-            let edge = Edge {
-                id: next_id,
-                from,
-                to,
-                label: label.clone(),
-                properties,
-            };
-
-            let bytes =
-                bincode::serialize(&edge).map_err(|e| HelixiteError::Codec(e.to_string()))?;
-            txn.put(Db::Edges, &next_id.to_be_bytes(), &bytes)?;
-
-            EdgeIndex::insert(txn, from, to, &label, next_id)?;
-            EdgePropertyIndexes::insert(txn, &registered, &edge)?;
-
-            Ok(next_id)
-        })?;
-
-        Ok(edge_id)
+        self.write(|tx| tx.add_edge(from, to, label, properties))
     }
 
-    pub fn get_edge(&self, id: EdgeId) -> Result<Edge> {
+    pub fn get_edge(&self, id: EdgeId) -> Result<crate::edge::Edge> {
         let bytes = self
             .storage
-            .get(Db::Edges, &id.to_be_bytes())?
-            .ok_or(HelixiteError::EdgeNotFound(id))?;
+            .get(crate::storage::engine::Db::Edges, &id.to_be_bytes())?
+            .ok_or(crate::error::HelixiteError::EdgeNotFound(id))?;
 
-        let edge = bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))?;
-
-        Ok(edge)
-    }
-
-    pub fn edge_mut(&self, id: EdgeId) -> EdgeCommand<'_, S> {
-        EdgeCommand::new(self, id)
+        bincode::deserialize(&bytes).map_err(|e| crate::error::HelixiteError::Codec(e.to_string()))
     }
 
     pub fn delete_edge(&self, id: EdgeId) -> Result<()> {
-        let edge = self.get_edge(id)?;
-
-        self.storage.write(|txn| {
-            let registered = PropertyIndexRegistry::load_edges_from_txn(txn)?;
-
-            EdgeIndex::delete(txn, edge.from, edge.to, &edge.label, edge.id)?;
-            EdgePropertyIndexes::delete(txn, &registered, &edge)?;
-            txn.delete(Db::Edges, &edge.id.to_be_bytes())?;
-
-            Ok(())
-        })
+        self.write(|tx| tx.delete_edge(id))
     }
 
     pub fn delete_node(&self, id: NodeId) -> Result<()> {
-        let node = self.get_node(id)?;
-
-        self.storage.write(|txn| {
-            let node_registry = PropertyIndexRegistry::load_nodes_from_txn(txn)?;
-            let edge_registry = PropertyIndexRegistry::load_edges_from_txn(txn)?;
-
-            let out_prefix = EdgeIndex::out_prefix(id, None);
-            let out_entries = txn.scan_prefix(Db::OutEdges, &out_prefix)?;
-
-            for (key, _) in &out_entries {
-                let Some(edge_id) = EdgeIndex::decode_edge_id(key) else {
-                    continue;
-                };
-                self.delete_edge_from_txn(txn, &edge_registry, edge_id)?;
-            }
-
-            let in_prefix = EdgeIndex::in_prefix(id, None);
-            let in_entries = txn.scan_prefix(Db::InEdges, &in_prefix)?;
-
-            for (key, _) in &in_entries {
-                let Some(edge_id) = EdgeIndex::decode_edge_id(key) else {
-                    continue;
-                };
-                self.delete_edge_from_txn(txn, &edge_registry, edge_id)?;
-            }
-
-            NodeIndexes::delete(txn, &node, &node_registry)?;
-            txn.delete(Db::Nodes, &node.id.to_be_bytes())?;
-
-            Ok(())
-        })
+        self.write(|tx| tx.delete_node(id))
     }
 
-    fn delete_edge_from_txn(
-        &self,
-        txn: &mut dyn crate::storage::StorageTxn,
-        edge_registry: &PropertyIndexRegistry,
-        edge_id: EdgeId,
-    ) -> Result<()> {
-        let bytes = match txn.get(Db::Edges, &edge_id.to_be_bytes())? {
-            Some(b) => b,
-            None => return Ok(()),
-        };
-
-        let edge: Edge =
-            bincode::deserialize(&bytes).map_err(|e| HelixiteError::Codec(e.to_string()))?;
-
-        EdgeIndex::delete(txn, edge.from, edge.to, &edge.label, edge.id)?;
-        EdgePropertyIndexes::delete(txn, edge_registry, &edge)?;
-        txn.delete(Db::Edges, &edge.id.to_be_bytes())?;
-
-        Ok(())
+    pub fn write<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut WriteTxn<'_>) -> Result<T>,
+    {
+        self.storage.write(|txn| {
+            let mut tx = WriteTxn::new(txn);
+            f(&mut tx)
+        })
     }
 
     pub fn nodes(&self) -> NodeQuery<'_, S> {

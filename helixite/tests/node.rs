@@ -93,10 +93,12 @@ fn test_mutate_node_set_property() {
         )
         .unwrap();
 
-    db.node_mut(id)
-        .set_property("name", Value::String("Bob".into()))
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.node(id)
+            .set_property("name", Value::String("Bob".into()))
+            .apply()
+    })
+    .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(
@@ -120,7 +122,8 @@ fn test_mutate_node_remove_property() {
         )
         .unwrap();
 
-    db.node_mut(id).remove_property("age").apply().unwrap();
+    db.write(|tx| tx.node(id).remove_property("age").apply())
+        .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(node.properties.get("age"), None);
@@ -145,13 +148,15 @@ fn test_mutate_node_replace_properties() {
         )
         .unwrap();
 
-    db.node_mut(id)
-        .replace_properties(vec![
-            ("name".to_string(), Value::String("Bob".into())),
-            ("city".to_string(), Value::String("NYC".into())),
-        ])
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.node(id)
+            .replace_properties(vec![
+                ("name".to_string(), Value::String("Bob".into())),
+                ("city".to_string(), Value::String("NYC".into())),
+            ])
+            .apply()
+    })
+    .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(
@@ -172,7 +177,8 @@ fn test_mutate_node_set_label() {
 
     let id = db.add_node("User", Vec::new()).unwrap();
 
-    db.node_mut(id).set_label("Person").apply().unwrap();
+    db.write(|tx| tx.node(id).set_label("Person").apply())
+        .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(node.label, "Person");
@@ -196,11 +202,13 @@ fn test_mutate_node_label_and_properties() {
         )
         .unwrap();
 
-    db.node_mut(id)
-        .set_label("Person")
-        .set_property("name", Value::String("Bob".into()))
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.node(id)
+            .set_label("Person")
+            .set_property("name", Value::String("Bob".into()))
+            .apply()
+    })
+    .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(node.label, "Person");
@@ -224,11 +232,13 @@ fn test_mutate_node_persists_after_reopen() {
             )
             .unwrap();
 
-        db.node_mut(id)
-            .set_label("Person")
-            .set_property("name", Value::String("Bob".into()))
-            .apply()
-            .unwrap();
+        db.write(|tx| {
+            tx.node(id)
+                .set_label("Person")
+                .set_property("name", Value::String("Bob".into()))
+                .apply()
+        })
+        .unwrap();
     }
 
     let db = HelixiteBuilder::new().open(path).unwrap();
@@ -245,7 +255,7 @@ fn test_mutate_nonexistent_node_errors() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
-    let result = db.node_mut(999).apply();
+    let result = db.write(|tx| tx.node(999).apply());
     assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
 }
 
@@ -261,7 +271,7 @@ fn test_mutate_node_empty_apply_is_noop() {
         )
         .unwrap();
 
-    db.node_mut(id).apply().unwrap();
+    db.write(|tx| tx.node(id).apply()).unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(node.label, "User");
@@ -283,11 +293,13 @@ fn test_mutate_node_replace_properties_wins_over_set_property() {
         )
         .unwrap();
 
-    db.node_mut(id)
-        .set_property("name", Value::String("Bob".into()))
-        .replace_properties(vec![("name".to_string(), Value::String("Charlie".into()))])
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.node(id)
+            .set_property("name", Value::String("Bob".into()))
+            .replace_properties(vec![("name".to_string(), Value::String("Charlie".into()))])
+            .apply()
+    })
+    .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(
@@ -308,11 +320,13 @@ fn test_mutate_node_set_property_wins_over_remove_property() {
         )
         .unwrap();
 
-    db.node_mut(id)
-        .remove_property("name")
-        .set_property("name", Value::String("Bob".into()))
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.node(id)
+            .remove_property("name")
+            .set_property("name", Value::String("Bob".into()))
+            .apply()
+    })
+    .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(
@@ -336,12 +350,14 @@ fn test_mutate_node_label_remove_property_set_property_combined() {
         )
         .unwrap();
 
-    db.node_mut(id)
-        .set_label("Person")
-        .remove_property("age")
-        .set_property("city", Value::String("NYC".into()))
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.node(id)
+            .set_label("Person")
+            .remove_property("age")
+            .set_property("city", Value::String("NYC".into()))
+            .apply()
+    })
+    .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(node.label, "Person");
@@ -388,12 +404,14 @@ fn test_mutate_node_label_with_vector_and_scalar_property_change() {
         )
         .unwrap();
 
-    db.node_mut(id)
-        .set_label("Doc")
-        .set_property("title", Value::String("Updated".into()))
-        .remove_property("title")
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.node(id)
+            .set_label("Doc")
+            .set_property("title", Value::String("Updated".into()))
+            .remove_property("title")
+            .apply()
+    })
+    .unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(node.label, "Doc");

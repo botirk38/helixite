@@ -152,9 +152,7 @@ fn test_mutate_edge_set_property() {
         )
         .unwrap();
 
-    db.edge_mut(id)
-        .set_property("since", Value::Int(2024))
-        .apply()
+    db.write(|tx| tx.edge(id).set_property("since", Value::Int(2024)).apply())
         .unwrap();
 
     let edge = db.get_edge(id).unwrap();
@@ -178,7 +176,8 @@ fn test_mutate_edge_remove_property() {
         )
         .unwrap();
 
-    db.edge_mut(id).remove_property("since").apply().unwrap();
+    db.write(|tx| tx.edge(id).remove_property("since").apply())
+        .unwrap();
 
     let edge = db.get_edge(id).unwrap();
     assert_eq!(edge.properties.get("since"), None);
@@ -201,10 +200,12 @@ fn test_mutate_edge_replace_properties() {
         )
         .unwrap();
 
-    db.edge_mut(id)
-        .replace_properties(vec![("weight".to_string(), Value::Float(0.8))])
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.edge(id)
+            .replace_properties(vec![("weight".to_string(), Value::Float(0.8))])
+            .apply()
+    })
+    .unwrap();
 
     let edge = db.get_edge(id).unwrap();
     assert_eq!(edge.properties.get("since"), None);
@@ -221,7 +222,8 @@ fn test_mutate_edge_set_label() {
 
     let id = db.add_edge(a, b, "knows", Vec::new()).unwrap();
 
-    db.edge_mut(id).set_label("follows").apply().unwrap();
+    db.write(|tx| tx.edge(id).set_label("follows").apply())
+        .unwrap();
 
     let edge = db.get_edge(id).unwrap();
     assert_eq!(edge.label, "follows");
@@ -250,11 +252,13 @@ fn test_mutate_edge_label_and_properties() {
         )
         .unwrap();
 
-    db.edge_mut(id)
-        .set_label("friends_with")
-        .set_property("since", Value::Int(2024))
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.edge(id)
+            .set_label("friends_with")
+            .set_property("since", Value::Int(2024))
+            .apply()
+    })
+    .unwrap();
 
     let edge = db.get_edge(id).unwrap();
     assert_eq!(edge.label, "friends_with");
@@ -272,11 +276,13 @@ fn test_mutate_edge_persists_after_reopen() {
         let to = db.add_node("User", Vec::new()).unwrap();
         let id = db.add_edge(from, to, "knows", Vec::new()).unwrap();
 
-        db.edge_mut(id)
-            .set_label("follows")
-            .set_property("weight", Value::Float(0.5))
-            .apply()
-            .unwrap();
+        db.write(|tx| {
+            tx.edge(id)
+                .set_label("follows")
+                .set_property("weight", Value::Float(0.5))
+                .apply()
+        })
+        .unwrap();
     }
 
     let db = HelixiteBuilder::new().open(path).unwrap();
@@ -290,7 +296,7 @@ fn test_mutate_nonexistent_edge_errors() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
-    let result = db.edge_mut(999).apply();
+    let result = db.write(|tx| tx.edge(999).apply());
     assert!(matches!(result, Err(HelixiteError::EdgeNotFound(999))));
 }
 
@@ -311,7 +317,7 @@ fn test_mutate_edge_empty_apply_is_noop() {
         )
         .unwrap();
 
-    db.edge_mut(id).apply().unwrap();
+    db.write(|tx| tx.edge(id).apply()).unwrap();
 
     let edge = db.get_edge(id).unwrap();
     assert_eq!(edge.label, "knows");
@@ -335,11 +341,13 @@ fn test_mutate_edge_replace_properties_wins_over_set_property() {
         )
         .unwrap();
 
-    db.edge_mut(id)
-        .set_property("since", Value::Int(2024))
-        .replace_properties(vec![("weight".to_string(), Value::Float(0.9))])
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.edge(id)
+            .set_property("since", Value::Int(2024))
+            .replace_properties(vec![("weight".to_string(), Value::Float(0.9))])
+            .apply()
+    })
+    .unwrap();
 
     let edge = db.get_edge(id).unwrap();
     assert_eq!(edge.properties.get("since"), None);
@@ -363,11 +371,13 @@ fn test_mutate_edge_set_property_wins_over_remove_property() {
         )
         .unwrap();
 
-    db.edge_mut(id)
-        .remove_property("since")
-        .set_property("since", Value::Int(2025))
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.edge(id)
+            .remove_property("since")
+            .set_property("since", Value::Int(2025))
+            .apply()
+    })
+    .unwrap();
 
     let edge = db.get_edge(id).unwrap();
     assert_eq!(edge.properties.get("since"), Some(&Value::Int(2025)));
@@ -393,12 +403,14 @@ fn test_mutate_edge_label_remove_property_set_property_combined() {
         )
         .unwrap();
 
-    db.edge_mut(id)
-        .set_label("friends_with")
-        .remove_property("weight")
-        .set_property("closeness", Value::Float(0.9))
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.edge(id)
+            .set_label("friends_with")
+            .remove_property("weight")
+            .set_property("closeness", Value::Float(0.9))
+            .apply()
+    })
+    .unwrap();
 
     let edge = db.get_edge(id).unwrap();
     assert_eq!(edge.label, "friends_with");

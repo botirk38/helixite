@@ -276,10 +276,12 @@ fn test_traversal_reflects_edge_mutation() {
     assert_eq!(edges_before.len(), 1);
 
     let edge_id = edges_before[0].id;
-    db.edge_mut(edge_id)
-        .set_property("weight", Value::Float(3.0))
-        .apply()
-        .unwrap();
+    db.write(|tx| {
+        tx.edge(edge_id)
+            .set_property("weight", Value::Float(3.0))
+            .apply()
+    })
+    .unwrap();
 
     let edges_after_old = db
         .node(a)
