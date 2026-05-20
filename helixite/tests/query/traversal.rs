@@ -391,3 +391,258 @@ fn test_traversal_limit_with_filters() {
         .unwrap();
     assert_eq!(edges.len(), 1);
 }
+
+#[test]
+fn test_traversal_edges_page_limit_conflict() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let err = db
+        .node(a)
+        .outgoing("knows")
+        .limit(10)
+        .edges_page(2)
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("limit() cannot be used with page()")
+    );
+}
+
+#[test]
+fn test_traversal_edges_page_first_page() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    for _i in 0..5 {
+        let b = db.add_node("B", Vec::new()).unwrap();
+        db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    }
+
+    let page = db.node(a).outgoing("knows").edges_page(2).unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert!(page.next_cursor.is_some());
+}
+
+#[test]
+fn test_traversal_edges_page_second_page() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    for _ in 0..5 {
+        let b = db.add_node("B", Vec::new()).unwrap();
+        db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    }
+
+    let page1 = db.node(a).outgoing("knows").edges_page(2).unwrap();
+    assert_eq!(page1.items.len(), 2);
+    let cursor = page1.next_cursor.unwrap();
+
+    let page2 = db
+        .node(a)
+        .outgoing("knows")
+        .after(cursor)
+        .edges_page(2)
+        .unwrap();
+    assert_eq!(page2.items.len(), 2);
+    assert!(page2.next_cursor.is_some());
+
+    let page1_ids: std::collections::HashSet<_> = page1.items.iter().map(|e| e.id).collect();
+    let page2_ids: std::collections::HashSet<_> = page2.items.iter().map(|e| e.id).collect();
+    assert!(page1_ids.is_disjoint(&page2_ids));
+}
+
+#[test]
+fn test_traversal_edges_page_last_page_no_next_cursor() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    for _ in 0..3 {
+        let b = db.add_node("B", Vec::new()).unwrap();
+        db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    }
+
+    let page1 = db.node(a).outgoing("knows").edges_page(2).unwrap();
+    assert_eq!(page1.items.len(), 2);
+    let cursor = page1.next_cursor.unwrap();
+
+    let page2 = db
+        .node(a)
+        .outgoing("knows")
+        .after(cursor)
+        .edges_page(2)
+        .unwrap();
+    assert_eq!(page2.items.len(), 1);
+    assert!(page2.next_cursor.is_none());
+}
+
+#[test]
+fn test_traversal_nodes_page_first_page() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+    let d = db.add_node("D", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, c, "knows", Vec::new()).unwrap();
+    db.add_edge(a, d, "knows", Vec::new()).unwrap();
+
+    let page = db.node(a).outgoing("knows").nodes_page(2).unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert!(page.next_cursor.is_some());
+}
+
+#[test]
+fn test_traversal_nodes_page_second_page() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    for _ in 0..5 {
+        let b = db.add_node("B", Vec::new()).unwrap();
+        db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    }
+
+    let page1 = db.node(a).outgoing("knows").nodes_page(2).unwrap();
+    assert_eq!(page1.items.len(), 2);
+    let cursor = page1.next_cursor.unwrap();
+
+    let page2 = db
+        .node(a)
+        .outgoing("knows")
+        .after(cursor)
+        .nodes_page(2)
+        .unwrap();
+    assert_eq!(page2.items.len(), 2);
+    assert!(page2.next_cursor.is_some());
+}
+
+#[test]
+fn test_traversal_edges_page_invalid_cursor_format() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let err = db
+        .node(a)
+        .outgoing("knows")
+        .after("bad_cursor")
+        .edges_page(2)
+        .unwrap_err();
+    assert!(err.to_string().contains("edge cursor must start with 'e:'"));
+}
+
+#[test]
+fn test_traversal_edges_page_stale_cursor() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let stale_cursor = "e:999999";
+
+    let err = db
+        .node(a)
+        .outgoing("knows")
+        .after(stale_cursor)
+        .edges_page(2)
+        .unwrap_err();
+    assert!(err.to_string().contains("cursor not found"));
+}
+
+#[test]
+fn test_traversal_count_rejects_after() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    for _ in 0..5 {
+        let b = db.add_node("B", Vec::new()).unwrap();
+        db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    }
+
+    let err = db
+        .node(a)
+        .outgoing("knows")
+        .after("e:1")
+        .count()
+        .unwrap_err();
+    assert!(err.to_string().contains("after() requires page()"));
+}
+
+#[test]
+fn test_traversal_edges_page_zero_size_rejected() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let err = db.node(a).outgoing("knows").edges_page(0).unwrap_err();
+    assert!(err.to_string().contains("page size must be greater than 0"));
+}
+
+#[test]
+fn test_traversal_nodes_page_zero_size_rejected() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let err = db.node(a).outgoing("knows").nodes_page(0).unwrap_err();
+    assert!(err.to_string().contains("page size must be greater than 0"));
+}
+
+#[test]
+fn test_traversal_edges_rejects_after() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let err = db
+        .node(a)
+        .outgoing("knows")
+        .after("e:1")
+        .edges()
+        .unwrap_err();
+    assert!(err.to_string().contains("after() requires page()"));
+}
+
+#[test]
+fn test_traversal_nodes_rejects_after() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let err = db
+        .node(a)
+        .outgoing("knows")
+        .after("e:1")
+        .nodes()
+        .unwrap_err();
+    assert!(err.to_string().contains("after() requires page()"));
+}

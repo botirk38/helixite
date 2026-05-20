@@ -4,6 +4,7 @@ use crate::edge::{Direction, Edge};
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
+use crate::query::pagination::{Cursor, Page};
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
@@ -30,6 +31,7 @@ pub struct TraversalQuery<'a, S: StorageEngine> {
     label: Option<String>,
     filters: Vec<EdgePropertyFilter>,
     limit: Option<usize>,
+    after: Option<String>,
 }
 
 impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
@@ -45,6 +47,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
             label: Some(label.into()),
             filters: Vec::new(),
             limit: None,
+            after: None,
         }
     }
 
@@ -56,6 +59,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
             label: Some(label.into()),
             filters: Vec::new(),
             limit: None,
+            after: None,
         }
     }
 
@@ -67,6 +71,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
             label: None,
             filters: Vec::new(),
             limit: None,
+            after: None,
         }
     }
 
@@ -78,6 +83,7 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
             label: None,
             filters: Vec::new(),
             limit: None,
+            after: None,
         }
     }
 }
@@ -105,6 +111,11 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
     }
 
     pub fn edges(self) -> Result<Vec<Edge>> {
+        if self.after.is_some() {
+            return Err(HelixiteError::InvalidConfig(
+                "after() requires page()".into(),
+            ));
+        }
         self.storage.read(|txn| {
             let exec = TraversalExec {
                 txn,
@@ -113,12 +124,18 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
                 label: self.label,
                 filters: self.filters,
                 limit: self.limit,
+                after: None,
             };
             exec.collect_edges()
         })
     }
 
     pub fn nodes(self) -> Result<Vec<Node>> {
+        if self.after.is_some() {
+            return Err(HelixiteError::InvalidConfig(
+                "after() requires page()".into(),
+            ));
+        }
         self.storage.read(|txn| {
             let exec = TraversalExec {
                 txn,
@@ -127,12 +144,18 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
                 label: self.label,
                 filters: self.filters,
                 limit: self.limit,
+                after: None,
             };
             exec.collect_nodes()
         })
     }
 
     pub fn count(self) -> Result<usize> {
+        if self.after.is_some() {
+            return Err(HelixiteError::InvalidConfig(
+                "after() requires page()".into(),
+            ));
+        }
         self.storage.read(|txn| {
             let exec = TraversalExec {
                 txn,
@@ -141,8 +164,64 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
                 label: self.label,
                 filters: self.filters,
                 limit: None,
+                after: None,
             };
             exec.count()
+        })
+    }
+
+    pub fn after(mut self, cursor: impl Into<String>) -> Self {
+        self.after = Some(cursor.into());
+        self
+    }
+
+    pub fn edges_page(self, size: usize) -> Result<Page<Edge>> {
+        if self.limit.is_some() {
+            return Err(HelixiteError::InvalidConfig(
+                "limit() cannot be used with page()".into(),
+            ));
+        }
+        if size == 0 {
+            return Err(HelixiteError::InvalidConfig(
+                "page size must be greater than 0".into(),
+            ));
+        }
+        self.storage.read(|txn| {
+            let exec = TraversalExec {
+                txn,
+                node_id: self.node_id,
+                direction: self.direction,
+                label: self.label,
+                filters: self.filters,
+                limit: None,
+                after: self.after,
+            };
+            exec.page(size)
+        })
+    }
+
+    pub fn nodes_page(self, size: usize) -> Result<Page<Node>> {
+        if self.limit.is_some() {
+            return Err(HelixiteError::InvalidConfig(
+                "limit() cannot be used with page()".into(),
+            ));
+        }
+        if size == 0 {
+            return Err(HelixiteError::InvalidConfig(
+                "page size must be greater than 0".into(),
+            ));
+        }
+        self.storage.read(|txn| {
+            let exec = TraversalExec {
+                txn,
+                node_id: self.node_id,
+                direction: self.direction,
+                label: self.label,
+                filters: self.filters,
+                limit: None,
+                after: self.after,
+            };
+            exec.nodes_page(size)
         })
     }
 }
@@ -154,6 +233,7 @@ struct TraversalExec<'a> {
     label: Option<String>,
     filters: Vec<EdgePropertyFilter>,
     limit: Option<usize>,
+    after: Option<String>,
 }
 
 impl TraversalExec<'_> {
@@ -394,5 +474,111 @@ impl TraversalExec<'_> {
                 EdgeIndex::in_prefix(self.node_id, self.label.as_deref()),
             ),
         }
+    }
+
+    fn resolve_ordered_edge_ids(&self) -> Result<Vec<EdgeId>> {
+        if !self.filters.is_empty() {
+            let edge_label = self.label.as_ref().ok_or_else(|| {
+                HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
+            })?;
+
+            for filter in &self.filters {
+                let EdgePropertyFilter::Eq(property, _value) = filter;
+                if !self.is_edge_property_indexed(edge_label, property)? {
+                    return Err(HelixiteError::IndexNotFound(format!(
+                        "no edge property index for {edge_label}::{property}"
+                    )));
+                }
+            }
+
+            let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
+            let adjacency_ids = self.scan_adjacency_ids()?;
+
+            let mut ids: Vec<EdgeId> = candidate_ids
+                .into_iter()
+                .filter(|id| adjacency_ids.contains(id))
+                .collect();
+            if let Some(limit) = self.limit {
+                ids.truncate(limit);
+            }
+            return Ok(ids);
+        }
+
+        let (db, prefix) = self.prefix_and_db();
+        let mut ids = Vec::new();
+
+        for entry in self.txn.iter(db, Scan::Prefix(&prefix))? {
+            let entry = entry?;
+            let edge_id = EdgeIndex::decode_edge_id(entry.key)
+                .ok_or_else(|| HelixiteError::Storage("corrupt edge adjacency key".into()))?;
+            ids.push(edge_id);
+            if let Some(limit) = self.limit
+                && ids.len() >= limit
+            {
+                break;
+            }
+        }
+
+        Ok(ids)
+    }
+
+    fn page(self, page_size: usize) -> Result<Page<Edge>> {
+        let ordered_ids = self.resolve_ordered_edge_ids()?;
+
+        let after = self
+            .after
+            .as_ref()
+            .map(|s| Cursor::decode_edge(s))
+            .transpose()?;
+
+        let page = Page::from_iter(
+            ordered_ids,
+            page_size,
+            after.as_ref(),
+            |id| after.as_ref().is_some_and(|c| c.matches_edge(*id)),
+            |id| Cursor::encode_edge(*id),
+        )?;
+
+        let edges = page
+            .items
+            .into_iter()
+            .map(|id| self.load_edge(id))
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Page {
+            items: edges,
+            next_cursor: page.next_cursor,
+        })
+    }
+
+    fn nodes_page(self, page_size: usize) -> Result<Page<Node>> {
+        let ordered_ids = self.resolve_ordered_edge_ids()?;
+
+        let after = self
+            .after
+            .as_ref()
+            .map(|s| Cursor::decode_edge(s))
+            .transpose()?;
+
+        let page = Page::from_iter(
+            ordered_ids,
+            page_size,
+            after.as_ref(),
+            |id| after.as_ref().is_some_and(|c| c.matches_edge(*id)),
+            |id| Cursor::encode_edge(*id),
+        )?;
+
+        let mut nodes = Vec::with_capacity(page.items.len());
+        for edge_id in page.items {
+            let edge = self.load_edge(edge_id)?;
+            let target_id = EdgeIndex::decode_target_from_edge(&edge, self.direction);
+            let node = self.load_node(target_id)?;
+            nodes.push(node);
+        }
+
+        Ok(Page {
+            items: nodes,
+            next_cursor: page.next_cursor,
+        })
     }
 }
