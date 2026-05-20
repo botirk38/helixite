@@ -1,3 +1,5 @@
+#[path = "query/edges.rs"]
+mod edges;
 #[path = "query/nodes.rs"]
 mod nodes;
 
