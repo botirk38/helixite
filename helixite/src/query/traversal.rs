@@ -6,7 +6,7 @@ use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
-use crate::storage::engine::Db;
+use crate::storage::engine::{Db, Scan};
 use crate::value::Value;
 
 use crate::index::edges::EdgeIndex;
@@ -140,7 +140,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
                 direction: self.direction,
                 label: self.label,
                 filters: self.filters,
-                limit: self.limit,
+                limit: None,
             };
             exec.count()
         })
@@ -163,11 +163,11 @@ impl TraversalExec<'_> {
         }
 
         let (db, prefix) = self.prefix_and_db();
-        let entries = self.txn.scan_prefix(db, &prefix)?;
-        let mut edges = Vec::with_capacity(entries.len());
+        let mut edges = Vec::new();
 
-        for (key, _) in entries {
-            let edge_id = EdgeIndex::decode_edge_id(&key)
+        for entry in self.txn.iter(db, Scan::Prefix(&prefix))? {
+            let entry = entry?;
+            let edge_id = EdgeIndex::decode_edge_id(entry.key)
                 .ok_or_else(|| HelixiteError::Storage("corrupt edge adjacency key".into()))?;
             let edge = self.load_edge(edge_id)?;
             edges.push(edge);
@@ -187,11 +187,11 @@ impl TraversalExec<'_> {
         }
 
         let (db, prefix) = self.prefix_and_db();
-        let entries = self.txn.scan_prefix(db, &prefix)?;
-        let mut nodes = Vec::with_capacity(entries.len());
+        let mut nodes = Vec::new();
 
-        for (key, _) in entries {
-            let edge = self.load_edge_from_key(&key)?;
+        for entry in self.txn.iter(db, Scan::Prefix(&prefix))? {
+            let entry = entry?;
+            let edge = self.load_edge_from_key(entry.key)?;
             let target_id = EdgeIndex::decode_target_from_edge(&edge, self.direction);
             let node = self.load_node(target_id)?;
             nodes.push(node);
@@ -211,8 +211,12 @@ impl TraversalExec<'_> {
         }
 
         let (db, prefix) = self.prefix_and_db();
-        let entries = self.txn.scan_prefix(db, &prefix)?;
-        Ok(entries.len())
+        let mut count = 0;
+        for entry in self.txn.iter(db, Scan::Prefix(&prefix))? {
+            entry?;
+            count += 1;
+        }
+        Ok(count)
     }
 
     fn collect_edges_filtered(self) -> Result<Vec<Edge>> {
@@ -315,10 +319,10 @@ impl TraversalExec<'_> {
                 return Ok(BTreeSet::new());
             };
 
-            let entries = self.txn.scan_prefix(Db::Properties, &prefix)?;
             let mut set = BTreeSet::new();
-            for (key, _) in entries {
-                if let Some(edge_id) = EdgePropertyIndex::decode_edge_id(&key) {
+            for entry in self.txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
+                let entry = entry?;
+                if let Some(edge_id) = EdgePropertyIndex::decode_edge_id(entry.key) {
                     set.insert(edge_id);
                 }
             }
@@ -339,10 +343,10 @@ impl TraversalExec<'_> {
 
     fn scan_adjacency_ids(&self) -> Result<BTreeSet<EdgeId>> {
         let (db, prefix) = self.prefix_and_db();
-        let entries = self.txn.scan_prefix(db, &prefix)?;
         let mut ids = BTreeSet::new();
-        for (key, _) in entries {
-            if let Some(edge_id) = EdgeIndex::decode_edge_id(&key) {
+        for entry in self.txn.iter(db, Scan::Prefix(&prefix))? {
+            let entry = entry?;
+            if let Some(edge_id) = EdgeIndex::decode_edge_id(entry.key) {
                 ids.insert(edge_id);
             }
         }

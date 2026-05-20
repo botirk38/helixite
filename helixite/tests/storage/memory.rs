@@ -1,4 +1,4 @@
-use helixite::storage::{Db, MemoryStorage, StorageEngine};
+use helixite::storage::{Db, MemoryStorage, Scan, StorageEngine};
 
 #[test]
 fn test_db_variants_exist() {
@@ -72,10 +72,13 @@ fn test_memory_txn_scan_prefix() {
         })
         .unwrap();
 
-    let results = storage
-        .read(|txn| txn.scan_prefix(Db::Nodes, &[1]))
+    storage
+        .read(|txn| {
+            let results = txn.scan(Db::Nodes, Scan::Prefix(&[1]), None)?;
+            assert_eq!(results.len(), 2);
+            Ok::<_, helixite::HelixiteError>(())
+        })
         .unwrap();
-    assert_eq!(results.len(), 2);
 }
 
 #[test]

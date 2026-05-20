@@ -8,7 +8,7 @@ use crate::node::Node;
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::WriteTxn;
-use crate::storage::engine::Db;
+use crate::storage::engine::{Db, Scan};
 use crate::value::Value;
 
 use super::codec::{KeyBuilder, KeyReader};
@@ -162,12 +162,12 @@ impl PropertyIndexRegistry {
     }
 
     fn load_from_txn(txn: &dyn ReadTxn, prefix: Vec<u8>) -> crate::error::Result<Self> {
-        let entries = txn.scan_prefix(Db::Metadata, &prefix)?;
-
         let mut indexes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
-        for (key, _) in entries {
-            let Some((label, prop)) = PropertyIndexMetadata::decode_label_property(&key) else {
+        for entry in txn.iter(Db::Metadata, Scan::Prefix(&prefix))? {
+            let entry = entry?;
+            let Some((label, prop)) = PropertyIndexMetadata::decode_label_property(entry.key)
+            else {
                 continue;
             };
 
@@ -211,9 +211,9 @@ impl NodePropertyIndexes {
             }
 
             let prefix = NodePropertyIndex::index_prefix(label, property);
-            let entries = txn.scan_prefix(Db::Properties, &prefix)?;
-
-            for (key, _) in entries {
+            let entries = txn.scan(Db::Properties, Scan::Prefix(&prefix), None)?;
+            let keys: Vec<Vec<u8>> = entries.iter().map(|e| e.key.to_vec()).collect();
+            for key in keys {
                 txn.delete(Db::Properties, &key)?;
             }
 
@@ -223,19 +223,22 @@ impl NodePropertyIndexes {
 
     fn label_exists(txn: &dyn ReadTxn, label: &str) -> Result<bool> {
         let prefix = LabelIndex::prefix(label);
-        let entries = txn.scan_prefix(Db::Labels, &prefix)?;
-        Ok(!entries.is_empty())
+        if let Some(entry) = txn.iter(Db::Labels, Scan::Prefix(&prefix))?.next() {
+            entry?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn backfill(txn: &mut dyn WriteTxn, label: &str, property: &str) -> Result<()> {
         let prefix = LabelIndex::prefix(label);
-        let entries = txn.scan_prefix(Db::Labels, &prefix)?;
+        let entries = txn.scan(Db::Labels, Scan::Prefix(&prefix), None)?;
+        let nodes: Vec<_> = entries
+            .iter()
+            .filter_map(|e| LabelIndex::decode_node_id(e.key))
+            .collect();
 
-        for (key, _) in entries {
-            let Some(node_id) = LabelIndex::decode_node_id(&key) else {
-                continue;
-            };
-
+        for node_id in nodes {
             let Some(node_bytes) = txn.get(Db::Nodes, &node_id.to_be_bytes())? else {
                 continue;
             };
@@ -310,9 +313,9 @@ impl EdgePropertyIndexes {
             }
 
             let prefix = EdgePropertyIndex::index_prefix(label, property);
-            let entries = txn.scan_prefix(Db::Properties, &prefix)?;
-
-            for (key, _) in entries {
+            let entries = txn.scan(Db::Properties, Scan::Prefix(&prefix), None)?;
+            let keys: Vec<Vec<u8>> = entries.iter().map(|e| e.key.to_vec()).collect();
+            for key in keys {
                 txn.delete(Db::Properties, &key)?;
             }
 
@@ -406,9 +409,9 @@ impl EdgePropertyIndexes {
     }
 
     fn label_exists(txn: &dyn ReadTxn, label: &str) -> Result<bool> {
-        let entries = txn.iter_all(Db::Edges)?;
-        for (_, value) in entries {
-            if let Ok(edge) = bincode::deserialize::<Edge>(&value)
+        let entries = txn.scan(Db::Edges, Scan::All, None)?;
+        for entry in &entries {
+            if let Ok(edge) = bincode::deserialize::<Edge>(entry.value)
                 && edge.label == label
             {
                 return Ok(true);
@@ -418,12 +421,13 @@ impl EdgePropertyIndexes {
     }
 
     fn backfill(txn: &mut dyn WriteTxn, label: &str, property: &str) -> Result<()> {
-        let entries = txn.iter_all(Db::Edges)?;
+        let entries = txn.scan(Db::Edges, Scan::All, None)?;
+        let edges: Vec<_> = entries
+            .iter()
+            .filter_map(|e| bincode::deserialize::<Edge>(e.value).ok())
+            .collect();
 
-        for (_, value) in entries {
-            let edge: Edge =
-                bincode::deserialize(&value).map_err(|e| HelixiteError::Codec(e.to_string()))?;
-
+        for edge in edges {
             if edge.label != label {
                 continue;
             }

@@ -4,9 +4,10 @@ mod similarity;
 
 use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
+use crate::index::labels::LabelIndex;
 use crate::node::Node;
 use crate::storage::StorageEngine;
-use crate::storage::engine::Db;
+use crate::storage::engine::{Db, Scan};
 use crate::storage::{ReadTxn, WriteTxn};
 use crate::value::Value;
 
@@ -133,13 +134,13 @@ impl VectorIndex {
 
     fn backfill(txn: &mut dyn WriteTxn, label: &str, property: &str) -> Result<()> {
         let prefix = crate::index::labels::LabelIndex::prefix(label);
-        let entries = txn.scan_prefix(Db::Labels, &prefix)?;
+        let entries = txn.scan(Db::Labels, Scan::Prefix(&prefix), None)?;
+        let nodes: Vec<_> = entries
+            .iter()
+            .filter_map(|e| LabelIndex::decode_node_id(e.key))
+            .collect();
 
-        for (key, _) in entries {
-            let Some(node_id) = crate::index::labels::LabelIndex::decode_node_id(&key) else {
-                continue;
-            };
-
+        for node_id in nodes {
             let Some(node_bytes) = txn.get(Db::Nodes, &node_id.to_be_bytes())? else {
                 continue;
             };
@@ -178,20 +179,23 @@ impl VectorIndex {
             }
 
             let vec_prefix = keys::vec_prefix(label, property);
-            let vec_entries = txn.scan_prefix(Db::VectorIndexes, &vec_prefix)?;
-            for (key, _) in vec_entries {
+            let vec_entries = txn.scan(Db::VectorIndexes, Scan::Prefix(&vec_prefix), None)?;
+            let vec_keys: Vec<Vec<u8>> = vec_entries.iter().map(|e| e.key.to_vec()).collect();
+            for key in vec_keys {
                 txn.delete(Db::VectorIndexes, &key)?;
             }
 
             let lvl_prefix = keys::lvl_prefix(label, property);
-            let lvl_entries = txn.scan_prefix(Db::VectorIndexes, &lvl_prefix)?;
-            for (key, _) in lvl_entries {
+            let lvl_entries = txn.scan(Db::VectorIndexes, Scan::Prefix(&lvl_prefix), None)?;
+            let lvl_keys: Vec<Vec<u8>> = lvl_entries.iter().map(|e| e.key.to_vec()).collect();
+            for key in lvl_keys {
                 txn.delete(Db::VectorIndexes, &key)?;
             }
 
             let lnk_prefix = keys::lnk_index_prefix(label, property);
-            let lnk_entries = txn.scan_prefix(Db::VectorIndexes, &lnk_prefix)?;
-            for (key, _) in lnk_entries {
+            let lnk_entries = txn.scan(Db::VectorIndexes, Scan::Prefix(&lnk_prefix), None)?;
+            let lnk_keys: Vec<Vec<u8>> = lnk_entries.iter().map(|e| e.key.to_vec()).collect();
+            for key in lnk_keys {
                 txn.delete(Db::VectorIndexes, &key)?;
             }
 

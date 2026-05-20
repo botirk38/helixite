@@ -3,7 +3,7 @@ use crate::id::NodeId;
 use crate::node::Node;
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
-use crate::storage::engine::Db;
+use crate::storage::engine::{Db, Scan};
 use crate::value::Value;
 
 use crate::index::labels::LabelIndex;
@@ -105,7 +105,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
                 label: self.label,
                 filters: self.filters,
                 vector_search: self.vector_search,
-                limit: self.limit,
+                limit: None,
             };
             let matching_ids = exec.resolve_ordered_ids()?;
             Ok(matching_ids.len())
@@ -161,8 +161,8 @@ impl NodeQueryExec<'_> {
 
         if self.filters.is_empty() {
             let mut result = match &self.label {
-                Some(label) => self.scan_ids_by_label(label)?,
-                None => self.scan_all_node_ids()?,
+                Some(label) => self.scan_ids_by_label(label, self.limit)?,
+                None => self.scan_all_node_ids(self.limit)?,
             };
             if let Some(limit) = self.limit {
                 result.truncate(limit);
@@ -173,7 +173,7 @@ impl NodeQueryExec<'_> {
         let mut matching_ids = self.resolve_filter_ids()?;
 
         if let Some(ref label) = self.label {
-            let label_ids = self.scan_ids_by_label(label)?;
+            let label_ids = self.scan_ids_by_label(label, None)?;
             matching_ids.retain(|id| label_ids.binary_search(id).is_ok());
         }
 
@@ -222,11 +222,10 @@ impl NodeQueryExec<'_> {
             return Ok(Vec::new());
         };
 
-        let entries = self.txn.scan_prefix(Db::Properties, &prefix)?;
         let mut ids = Vec::new();
-
-        for (key, _) in entries {
-            let node_id = NodePropertyIndex::decode_node_id(&key)
+        for entry in self.txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
+            let entry = entry?;
+            let node_id = NodePropertyIndex::decode_node_id(entry.key)
                 .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
             ids.push(node_id);
         }
@@ -235,30 +234,41 @@ impl NodeQueryExec<'_> {
         Ok(ids)
     }
 
-    fn scan_ids_by_label(&self, label: &str) -> Result<Vec<NodeId>> {
+    fn scan_ids_by_label(&self, label: &str, limit: Option<usize>) -> Result<Vec<NodeId>> {
         let prefix = LabelIndex::prefix(label);
-        let entries = self.txn.scan_prefix(Db::Labels, &prefix)?;
         let mut ids = Vec::new();
 
-        for (key, _) in entries {
-            let node_id = LabelIndex::decode_node_id(&key)
+        for entry in self.txn.iter(Db::Labels, Scan::Prefix(&prefix))? {
+            let entry = entry?;
+            let node_id = LabelIndex::decode_node_id(entry.key)
                 .ok_or_else(|| HelixiteError::Storage("corrupt label index key".into()))?;
             ids.push(node_id);
+            if let Some(limit) = limit
+                && ids.len() >= limit
+            {
+                break;
+            }
         }
 
         ids.sort_unstable();
         Ok(ids)
     }
 
-    fn scan_all_node_ids(&self) -> Result<Vec<NodeId>> {
-        let entries = self.txn.scan_prefix(Db::Nodes, &[])?;
+    fn scan_all_node_ids(&self, limit: Option<usize>) -> Result<Vec<NodeId>> {
         let mut ids = Vec::new();
 
-        for (key, _) in entries {
-            let id_bytes: [u8; 8] = key
+        for entry in self.txn.iter(Db::Nodes, Scan::All)? {
+            let entry = entry?;
+            let id_bytes: [u8; 8] = entry
+                .key
                 .try_into()
                 .map_err(|_| HelixiteError::Storage("corrupt node key".into()))?;
             ids.push(u64::from_be_bytes(id_bytes));
+            if let Some(limit) = limit
+                && ids.len() >= limit
+            {
+                break;
+            }
         }
 
         ids.sort_unstable();
