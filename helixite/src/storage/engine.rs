@@ -81,4 +81,8 @@ pub trait StorageEngine: Send + Sync {
     fn write<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&mut dyn WriteTxn) -> Result<T>;
+
+    fn close(&self) -> Result<()> {
+        Ok(())
+    }
 }

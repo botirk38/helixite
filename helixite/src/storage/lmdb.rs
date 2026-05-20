@@ -56,6 +56,11 @@ impl StorageEngine for LmdbStorage {
         }
         result
     }
+
+    fn close(&self) -> Result<()> {
+        self.env.force_sync()?;
+        Ok(())
+    }
 }
 
 struct LmdbTxn<'e> {
