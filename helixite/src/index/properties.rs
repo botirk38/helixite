@@ -153,6 +153,10 @@ impl PropertyIndexRegistry {
             .is_some_and(|props| props.contains(property))
     }
 
+    pub(crate) fn into_indexes(self) -> BTreeMap<String, BTreeSet<String>> {
+        self.indexes
+    }
+
     pub(crate) fn load_nodes_from_txn(txn: &dyn ReadTxn) -> crate::error::Result<Self> {
         Self::load_from_txn(txn, PropertyIndexMetadata::node_prefix())
     }
