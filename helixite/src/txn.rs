@@ -5,7 +5,7 @@ use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
 use crate::storage::StorageEngine;
-use crate::storage::engine::Db;
+use crate::storage::engine::{Db, Scan};
 use crate::storage::{ReadTxn as StorageReadTxn, WriteTxn as StorageWriteTxn};
 use crate::value::Value;
 
@@ -104,20 +104,22 @@ impl<'a> WriteTxn<'a> {
         let edge_registry = PropertyIndexRegistry::load_edges_from_txn(self.txn)?;
 
         let out_prefix = EdgeIndex::out_prefix(id, None);
-        let out_entries = self.txn.scan_prefix(Db::OutEdges, &out_prefix)?;
-
-        for (key, _) in &out_entries {
-            let Some(edge_id) = EdgeIndex::decode_edge_id(key) else {
+        let out_entries = self
+            .txn
+            .scan(Db::OutEdges, Scan::Prefix(&out_prefix), None)?;
+        let out_keys: Vec<Vec<u8>> = out_entries.iter().map(|e| e.key.to_vec()).collect();
+        for key in out_keys {
+            let Some(edge_id) = EdgeIndex::decode_edge_id(&key) else {
                 continue;
             };
             delete_edge_from_txn(self.txn, &edge_registry, edge_id)?;
         }
 
         let in_prefix = EdgeIndex::in_prefix(id, None);
-        let in_entries = self.txn.scan_prefix(Db::InEdges, &in_prefix)?;
-
-        for (key, _) in &in_entries {
-            let Some(edge_id) = EdgeIndex::decode_edge_id(key) else {
+        let in_entries = self.txn.scan(Db::InEdges, Scan::Prefix(&in_prefix), None)?;
+        let in_keys: Vec<Vec<u8>> = in_entries.iter().map(|e| e.key.to_vec()).collect();
+        for key in in_keys {
+            let Some(edge_id) = EdgeIndex::decode_edge_id(&key) else {
                 continue;
             };
             delete_edge_from_txn(self.txn, &edge_registry, edge_id)?;

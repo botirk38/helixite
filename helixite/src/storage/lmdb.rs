@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::error::{HelixiteError, Result};
-use crate::storage::engine::{Db, ReadTxn, StorageEngine, WriteTxn};
+use crate::storage::engine::{Db, Entry, EntryIter, ReadTxn, Scan, StorageEngine, WriteTxn};
 
 use super::env::open_env;
 
@@ -101,26 +101,24 @@ impl ReadTxn for LmdbTxn<'_> {
         Ok(database.get(self.txn()?, key)?.map(|b| b.to_vec()))
     }
 
-    fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    fn iter<'a>(&'a self, db: Db, scan: Scan<'a>) -> Result<EntryIter<'a>> {
         let database = self.database(db);
-        let iter = database.prefix_iter(self.txn()?, prefix)?;
-        let mut results = Vec::new();
-        for entry in iter {
-            let (k, v) = entry?;
-            results.push((k.to_vec(), v.to_vec()));
+        match scan {
+            Scan::All => {
+                let iter = database.iter(self.txn()?)?;
+                Ok(Box::new(iter.map(|r| {
+                    let (k, v) = r?;
+                    Ok(Entry { key: k, value: v })
+                })))
+            }
+            Scan::Prefix(prefix) => {
+                let iter = database.prefix_iter(self.txn()?, prefix)?;
+                Ok(Box::new(iter.map(|r| {
+                    let (k, v) = r?;
+                    Ok(Entry { key: k, value: v })
+                })))
+            }
         }
-        Ok(results)
-    }
-
-    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        let database = self.database(db);
-        let iter = database.iter(self.txn()?)?;
-        let mut results = Vec::new();
-        for entry in iter {
-            let (k, v) = entry?;
-            results.push((k.to_vec(), v.to_vec()));
-        }
-        Ok(results)
     }
 }
 
@@ -174,25 +172,23 @@ impl ReadTxn for LmdbReadTxn<'_> {
         Ok(database.get(self.txn(), key)?.map(|b| b.to_vec()))
     }
 
-    fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    fn iter<'a>(&'a self, db: Db, scan: Scan<'a>) -> Result<EntryIter<'a>> {
         let database = self.database(db);
-        let iter = database.prefix_iter(self.txn(), prefix)?;
-        let mut results = Vec::new();
-        for entry in iter {
-            let (k, v) = entry?;
-            results.push((k.to_vec(), v.to_vec()));
+        match scan {
+            Scan::All => {
+                let iter = database.iter(self.txn())?;
+                Ok(Box::new(iter.map(|r| {
+                    let (k, v) = r?;
+                    Ok(Entry { key: k, value: v })
+                })))
+            }
+            Scan::Prefix(prefix) => {
+                let iter = database.prefix_iter(self.txn(), prefix)?;
+                Ok(Box::new(iter.map(|r| {
+                    let (k, v) = r?;
+                    Ok(Entry { key: k, value: v })
+                })))
+            }
         }
-        Ok(results)
-    }
-
-    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        let database = self.database(db);
-        let iter = database.iter(self.txn())?;
-        let mut results = Vec::new();
-        for entry in iter {
-            let (k, v) = entry?;
-            results.push((k.to_vec(), v.to_vec()));
-        }
-        Ok(results)
     }
 }

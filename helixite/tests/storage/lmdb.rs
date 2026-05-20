@@ -1,5 +1,5 @@
 use helixite::HelixiteBuilder;
-use helixite::storage::{Db, StorageEngine};
+use helixite::storage::{Db, Scan, StorageEngine};
 use tempfile::tempdir;
 
 #[test]
@@ -28,11 +28,13 @@ fn test_lmdb_storage_get_put_scan_delete() {
         .unwrap();
     assert_eq!(missing, None);
 
-    let prefix_results = db
-        .storage()
-        .read(|txn| txn.scan_prefix(Db::Metadata, b"key"))
+    db.storage()
+        .read(|txn| {
+            let prefix_results = txn.scan(Db::Metadata, Scan::Prefix(b"key"), None)?;
+            assert_eq!(prefix_results.len(), 2);
+            Ok::<_, helixite::HelixiteError>(())
+        })
         .unwrap();
-    assert_eq!(prefix_results.len(), 2);
 
     db.storage()
         .write(|txn| {

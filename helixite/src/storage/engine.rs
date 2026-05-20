@@ -44,38 +44,36 @@ impl Db {
     }
 }
 
-/// Abstract read-only transaction over any logical database.
-///
-/// Implementations wrap concrete backend transactions (LMDB, in-memory, etc.)
-/// and expose uniform read operations.
-pub trait ReadTxn {
-    fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>>;
-    fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
-    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>>;
+pub struct Entry<'a> {
+    pub key: &'a [u8],
+    pub value: &'a [u8],
 }
 
-/// Abstract read-write transaction over any logical database.
-///
-/// Extends `ReadTxn` with mutation operations.
+pub type EntryIter<'a> = Box<dyn Iterator<Item = Result<Entry<'a>>> + 'a>;
+
+pub enum Scan<'a> {
+    All,
+    Prefix(&'a [u8]),
+}
+
+pub trait ReadTxn {
+    fn get(&self, db: Db, key: &[u8]) -> Result<Option<Vec<u8>>>;
+
+    fn iter<'a>(&'a self, db: Db, scan: Scan<'a>) -> Result<EntryIter<'a>>;
+
+    fn scan<'a>(&'a self, db: Db, scan: Scan<'a>, limit: Option<usize>) -> Result<Vec<Entry<'a>>> {
+        match limit {
+            Some(limit) => self.iter(db, scan)?.take(limit).collect(),
+            None => self.iter(db, scan)?.collect(),
+        }
+    }
+}
+
 pub trait WriteTxn: ReadTxn {
     fn put(&mut self, db: Db, key: &[u8], value: &[u8]) -> Result<()>;
     fn delete(&mut self, db: Db, key: &[u8]) -> Result<()>;
 }
 
-/// Abstract storage engine for pluggable backends.
-///
-/// # Transaction model
-///
-/// All storage access happens inside a transaction.
-///
-/// `read` accepts a closure `FnOnce(&dyn ReadTxn) -> Result<T>`.
-/// The engine opens a read transaction, passes it to the closure, and
-/// provides a consistent snapshot for the duration of the closure.
-///
-/// `write` accepts a closure `FnOnce(&mut dyn WriteTxn) -> Result<T>`.
-/// The engine opens a write transaction, passes it to the closure, and
-/// commits only if the closure returns `Ok`. If the closure returns `Err`,
-/// the transaction is aborted automatically.
 pub trait StorageEngine: Send + Sync {
     fn read<F, T>(&self, f: F) -> Result<T>
     where

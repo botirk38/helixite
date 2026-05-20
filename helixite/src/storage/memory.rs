@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::error::Result;
-use crate::storage::engine::{Db, ReadTxn, StorageEngine, WriteTxn};
+use crate::storage::engine::{Db, Entry, EntryIter, ReadTxn, Scan, StorageEngine, WriteTxn};
 
 type MemoryKey = (Db, Vec<u8>);
 
@@ -63,22 +63,24 @@ impl ReadTxn for MemoryTxn<'_> {
         Ok(self.snapshot.get(&(db, key.to_vec())).cloned())
     }
 
-    fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        Ok(self
-            .snapshot
-            .iter()
-            .filter(|((stored_db, key), _)| *stored_db == db && key.starts_with(prefix))
-            .map(|((_, key), value)| (key.clone(), value.clone()))
-            .collect())
-    }
-
-    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        Ok(self
-            .snapshot
-            .iter()
-            .filter(|((stored_db, _), _)| *stored_db == db)
-            .map(|((_, key), value)| (key.clone(), value.clone()))
-            .collect())
+    fn iter<'a>(&'a self, db: Db, scan: Scan<'a>) -> Result<EntryIter<'a>> {
+        Ok(Box::new(
+            self.snapshot
+                .iter()
+                .filter(move |((stored_db, key), _)| {
+                    *stored_db == db
+                        && match scan {
+                            Scan::All => true,
+                            Scan::Prefix(prefix) => key.starts_with(prefix),
+                        }
+                })
+                .map(|((_, key), value)| {
+                    Ok(Entry {
+                        key: key.as_slice(),
+                        value: value.as_slice(),
+                    })
+                }),
+        ))
     }
 }
 
@@ -114,21 +116,23 @@ impl ReadTxn for MemoryReadTxn {
         Ok(self.snapshot.get(&(db, key.to_vec())).cloned())
     }
 
-    fn scan_prefix(&self, db: Db, prefix: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        Ok(self
-            .snapshot
-            .iter()
-            .filter(|((stored_db, key), _)| *stored_db == db && key.starts_with(prefix))
-            .map(|((_, key), value)| (key.clone(), value.clone()))
-            .collect())
-    }
-
-    fn iter_all(&self, db: Db) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        Ok(self
-            .snapshot
-            .iter()
-            .filter(|((stored_db, _), _)| *stored_db == db)
-            .map(|((_, key), value)| (key.clone(), value.clone()))
-            .collect())
+    fn iter<'a>(&'a self, db: Db, scan: Scan<'a>) -> Result<EntryIter<'a>> {
+        Ok(Box::new(
+            self.snapshot
+                .iter()
+                .filter(move |((stored_db, key), _)| {
+                    *stored_db == db
+                        && match scan {
+                            Scan::All => true,
+                            Scan::Prefix(prefix) => key.starts_with(prefix),
+                        }
+                })
+                .map(|((_, key), value)| {
+                    Ok(Entry {
+                        key: key.as_slice(),
+                        value: value.as_slice(),
+                    })
+                }),
+        ))
     }
 }

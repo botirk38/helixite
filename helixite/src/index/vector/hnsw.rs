@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::id::NodeId;
 use crate::storage::ReadTxn;
 use crate::storage::WriteTxn;
-use crate::storage::engine::Db;
+use crate::storage::engine::{Db, Scan};
 
 use super::keys::*;
 use super::similarity::SimilarityKind;
@@ -157,21 +157,26 @@ impl Hnsw {
 
         for l in 0..=node_level {
             let prefix = lnk_prefix(label, property, l, node_id);
-            let entries = txn.scan_prefix(Db::VectorIndexes, &prefix)?;
-            for (key, _) in entries {
+            let entries = txn.scan(Db::VectorIndexes, Scan::Prefix(&prefix), None)?;
+            let keys: Vec<Vec<u8>> = entries.iter().map(|e| e.key.to_vec()).collect();
+            for key in keys {
                 txn.delete(Db::VectorIndexes, &key)?;
             }
 
             let level_prefix = lnk_level_prefix(label, property, l);
-            let all_links = txn.scan_prefix(Db::VectorIndexes, &level_prefix)?;
-            for (key, _) in all_links {
-                let Some((_, _, target)) = decode_link_from_lnk_key(&key) else {
+            let entries = txn.scan(Db::VectorIndexes, Scan::Prefix(&level_prefix), None)?;
+            let keys: Vec<(Vec<u8>, Vec<u8>)> = entries
+                .iter()
+                .map(|e| (e.key.to_vec(), e.value.to_vec()))
+                .collect();
+            for (key, _) in &keys {
+                let Some((_, _, target)) = decode_link_from_lnk_key(key) else {
                     continue;
                 };
                 if target != node_id {
                     continue;
                 }
-                txn.delete(Db::VectorIndexes, &key)?;
+                txn.delete(Db::VectorIndexes, key)?;
             }
         }
 
@@ -182,9 +187,10 @@ impl Hnsw {
             let mut new_ep = None;
             let mut new_max_level = 0u8;
 
-            let all_vecs = txn.scan_prefix(Db::VectorIndexes, &vec_prefix(label, property))?;
-            for (key, _) in all_vecs {
-                let Some(nid) = decode_node_id_from_vec_key(&key) else {
+            let vec_prefix = vec_prefix(label, property);
+            let entries = txn.scan(Db::VectorIndexes, Scan::Prefix(&vec_prefix), None)?;
+            for entry in &entries {
+                let Some(nid) = decode_node_id_from_vec_key(entry.key) else {
                     continue;
                 };
                 if nid == node_id {
@@ -388,7 +394,11 @@ fn add_link(
     txn.put(Db::VectorIndexes, &key, &[])?;
 
     let prefix = lnk_prefix(label, property, level, from);
-    let entries = txn.scan_prefix(Db::VectorIndexes, &prefix)?;
+    let scanned = txn.scan(Db::VectorIndexes, Scan::Prefix(&prefix), None)?;
+    let entries: Vec<_> = scanned
+        .iter()
+        .map(|e| (e.key.to_vec(), e.value.to_vec()))
+        .collect();
 
     if entries.len() > meta.m {
         prune_links(txn, label, property, from, &entries, meta)?;
@@ -456,11 +466,9 @@ fn load_neighbors(
     node_id: NodeId,
 ) -> Result<Vec<NodeId>> {
     let prefix = lnk_prefix(label, property, level, node_id);
-    let entries = txn.scan_prefix(Db::VectorIndexes, &prefix)?;
-
     let mut neighbors = Vec::new();
-    for (key, _) in entries {
-        if let Some((_, _, neighbor_id)) = decode_link_from_lnk_key(&key) {
+    for entry in txn.scan(Db::VectorIndexes, Scan::Prefix(&prefix), None)? {
+        if let Some((_, _, neighbor_id)) = decode_link_from_lnk_key(entry.key) {
             neighbors.push(neighbor_id);
         }
     }
