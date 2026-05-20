@@ -68,27 +68,6 @@ impl EdgeIndex {
         Ok(())
     }
 
-    pub(crate) fn replace_label(
-        txn: &mut dyn WriteTxn,
-        from: NodeId,
-        to: NodeId,
-        old_label: &str,
-        new_label: &str,
-        edge_id: EdgeId,
-    ) -> Result<()> {
-        let old_out = Self::out_key(from, old_label, edge_id);
-        txn.delete(Db::OutEdges, &old_out)?;
-        let old_in = Self::in_key(to, old_label, edge_id);
-        txn.delete(Db::InEdges, &old_in)?;
-
-        let new_out = Self::out_key(from, new_label, edge_id);
-        txn.put(Db::OutEdges, &new_out, &edge_id.to_be_bytes())?;
-        let new_in = Self::in_key(to, new_label, edge_id);
-        txn.put(Db::InEdges, &new_in, &edge_id.to_be_bytes())?;
-
-        Ok(())
-    }
-
     pub(crate) fn delete(
         txn: &mut dyn WriteTxn,
         from: NodeId,
