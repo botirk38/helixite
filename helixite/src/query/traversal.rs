@@ -4,6 +4,7 @@ use crate::edge::{Direction, Edge};
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
+use crate::query::nodes::PropertyFilter;
 use crate::query::pagination::{Cursor, Page};
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
@@ -17,6 +18,12 @@ use crate::index::properties::PropertyIndexMetadata;
 #[derive(Debug, Clone)]
 pub(crate) enum EdgePropertyFilter {
     Eq(String, Value),
+    Ne(String, Value),
+    Gt(String, Value),
+    Gte(String, Value),
+    Lt(String, Value),
+    Lte(String, Value),
+    In(String, Vec<Value>),
 }
 
 pub struct NodeRefQuery<'a, S: StorageEngine> {
@@ -92,6 +99,48 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
     pub fn eq(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
             .push(EdgePropertyFilter::Eq(property.into(), value));
+        self
+    }
+
+    pub fn ne(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Ne(property.into(), value));
+        self
+    }
+
+    pub fn gt(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Gt(property.into(), value));
+        self
+    }
+
+    pub fn gte(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Gte(property.into(), value));
+        self
+    }
+
+    pub fn lt(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Lt(property.into(), value));
+        self
+    }
+
+    pub fn lte(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Lte(property.into(), value));
+        self
+    }
+
+    pub fn r#in(
+        mut self,
+        property: impl Into<String>,
+        values: impl IntoIterator<Item = Value>,
+    ) -> Self {
+        self.filters.push(EdgePropertyFilter::In(
+            property.into(),
+            values.into_iter().collect(),
+        ));
         self
     }
 
@@ -305,7 +354,7 @@ impl TraversalExec<'_> {
         })?;
 
         for filter in &self.filters {
-            let EdgePropertyFilter::Eq(property, _value) = filter;
+            let property = filter.property();
             if !self.is_edge_property_indexed(edge_label, property)? {
                 return Err(HelixiteError::IndexNotFound(format!(
                     "no edge property index for {edge_label}::{property}"
@@ -338,7 +387,7 @@ impl TraversalExec<'_> {
         })?;
 
         for filter in &self.filters {
-            let EdgePropertyFilter::Eq(property, _value) = filter;
+            let property = filter.property();
             if !self.is_edge_property_indexed(edge_label, property)? {
                 return Err(HelixiteError::IndexNotFound(format!(
                     "no edge property index for {edge_label}::{property}"
@@ -373,7 +422,7 @@ impl TraversalExec<'_> {
         })?;
 
         for filter in &self.filters {
-            let EdgePropertyFilter::Eq(property, _value) = filter;
+            let property = filter.property();
             if !self.is_edge_property_indexed(edge_label, property)? {
                 return Err(HelixiteError::IndexNotFound(format!(
                     "no edge property index for {edge_label}::{property}"
@@ -394,15 +443,18 @@ impl TraversalExec<'_> {
         let mut sets: Vec<BTreeSet<EdgeId>> = Vec::with_capacity(self.filters.len());
 
         for filter in &self.filters {
-            let EdgePropertyFilter::Eq(property, value) = filter;
-            let Some(prefix) = EdgePropertyIndex::lookup_prefix(label, property, value) else {
-                return Ok(BTreeSet::new());
-            };
-
             let mut set = BTreeSet::new();
-            for entry in self.txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
+            for entry in self.txn.iter(
+                Db::Properties,
+                Scan::Prefix(&EdgePropertyIndex::index_prefix(label, filter.property())),
+            )? {
                 let entry = entry?;
-                if let Some(edge_id) = EdgePropertyIndex::decode_edge_id(entry.key) {
+                let Some(indexed_value) = EdgePropertyIndex::decode_value(entry.key) else {
+                    return Err(HelixiteError::Storage("corrupt property index key".into()));
+                };
+                if filter.matches_indexed(&indexed_value)
+                    && let Some(edge_id) = EdgePropertyIndex::decode_edge_id(entry.key)
+                {
                     set.insert(edge_id);
                 }
             }
@@ -483,7 +535,7 @@ impl TraversalExec<'_> {
             })?;
 
             for filter in &self.filters {
-                let EdgePropertyFilter::Eq(property, _value) = filter;
+                let property = filter.property();
                 if !self.is_edge_property_indexed(edge_label, property)? {
                     return Err(HelixiteError::IndexNotFound(format!(
                         "no edge property index for {edge_label}::{property}"
@@ -580,5 +632,46 @@ impl TraversalExec<'_> {
             items: nodes,
             next_cursor: page.next_cursor,
         })
+    }
+}
+
+impl EdgePropertyFilter {
+    pub(crate) fn property(&self) -> &str {
+        match self {
+            EdgePropertyFilter::Eq(property, _)
+            | EdgePropertyFilter::Ne(property, _)
+            | EdgePropertyFilter::Gt(property, _)
+            | EdgePropertyFilter::Gte(property, _)
+            | EdgePropertyFilter::Lt(property, _)
+            | EdgePropertyFilter::Lte(property, _)
+            | EdgePropertyFilter::In(property, _) => property,
+        }
+    }
+
+    pub(crate) fn matches_indexed(&self, indexed_value: &crate::value::IndexedValue) -> bool {
+        let filter = match self {
+            EdgePropertyFilter::Eq(property, value) => {
+                PropertyFilter::Eq(property.clone(), value.clone())
+            }
+            EdgePropertyFilter::Ne(property, value) => {
+                PropertyFilter::Ne(property.clone(), value.clone())
+            }
+            EdgePropertyFilter::Gt(property, value) => {
+                PropertyFilter::Gt(property.clone(), value.clone())
+            }
+            EdgePropertyFilter::Gte(property, value) => {
+                PropertyFilter::Gte(property.clone(), value.clone())
+            }
+            EdgePropertyFilter::Lt(property, value) => {
+                PropertyFilter::Lt(property.clone(), value.clone())
+            }
+            EdgePropertyFilter::Lte(property, value) => {
+                PropertyFilter::Lte(property.clone(), value.clone())
+            }
+            EdgePropertyFilter::In(property, values) => {
+                PropertyFilter::In(property.clone(), values.clone())
+            }
+        };
+        filter.matches_indexed(indexed_value)
     }
 }

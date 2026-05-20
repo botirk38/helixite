@@ -96,6 +96,94 @@ fn test_nodes_by_property() {
 }
 
 #[test]
+fn test_nodes_by_comparison_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("User", [("age".to_string(), Value::Int(20))])
+        .unwrap();
+    db.add_node("User", [("age".to_string(), Value::Int(30))])
+        .unwrap();
+    db.add_node("User", [("age".to_string(), Value::Int(40))])
+        .unwrap();
+
+    db.indexes().nodes().create_property("User", "age").unwrap();
+
+    assert_eq!(
+        db.nodes()
+            .label("User")
+            .gt("age", Value::Int(20))
+            .count()
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        db.nodes()
+            .label("User")
+            .gte("age", Value::Int(30))
+            .count()
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        db.nodes()
+            .label("User")
+            .lt("age", Value::Int(40))
+            .count()
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        db.nodes()
+            .label("User")
+            .lte("age", Value::Int(30))
+            .count()
+            .unwrap(),
+        2
+    );
+}
+
+#[test]
+fn test_nodes_by_ne_and_in_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node(
+        "User",
+        [("name".to_string(), Value::String("Alice".into()))],
+    )
+    .unwrap();
+    db.add_node("User", [("name".to_string(), Value::String("Bob".into()))])
+        .unwrap();
+    db.add_node("User", [("name".to_string(), Value::String("Cara".into()))])
+        .unwrap();
+
+    db.indexes()
+        .nodes()
+        .create_property("User", "name")
+        .unwrap();
+
+    let not_alice = db
+        .nodes()
+        .label("User")
+        .ne("name", Value::String("Alice".into()))
+        .collect()
+        .unwrap();
+    assert_eq!(not_alice.len(), 2);
+
+    let selected = db
+        .nodes()
+        .label("User")
+        .r#in(
+            "name",
+            [Value::String("Alice".into()), Value::String("Cara".into())],
+        )
+        .collect()
+        .unwrap();
+    assert_eq!(selected.len(), 2);
+}
+
+#[test]
 fn test_nodes_by_property_with_label() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::new().open(dir.path()).unwrap();

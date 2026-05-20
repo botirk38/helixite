@@ -43,6 +43,48 @@ impl<'a, S: StorageEngine> EdgeQuery<'a, S> {
         self
     }
 
+    pub fn ne(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Ne(property.into(), value));
+        self
+    }
+
+    pub fn gt(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Gt(property.into(), value));
+        self
+    }
+
+    pub fn gte(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Gte(property.into(), value));
+        self
+    }
+
+    pub fn lt(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Lt(property.into(), value));
+        self
+    }
+
+    pub fn lte(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(EdgePropertyFilter::Lte(property.into(), value));
+        self
+    }
+
+    pub fn r#in(
+        mut self,
+        property: impl Into<String>,
+        values: impl IntoIterator<Item = Value>,
+    ) -> Self {
+        self.filters.push(EdgePropertyFilter::In(
+            property.into(),
+            values.into_iter().collect(),
+        ));
+        self
+    }
+
     pub fn limit(mut self, n: usize) -> Self {
         self.limit = Some(n);
         self
@@ -180,7 +222,7 @@ impl EdgeQueryExec<'_> {
         sets.push(label_ids);
 
         for filter in &self.filters {
-            let EdgePropertyFilter::Eq(property, value) = filter;
+            let property = filter.property();
 
             if !self.is_property_indexed(label, property)? {
                 return Err(HelixiteError::IndexNotFound(format!(
@@ -188,16 +230,19 @@ impl EdgeQueryExec<'_> {
                 )));
             }
 
-            let Some(prefix) = EdgePropertyIndex::lookup_prefix(label, property, value) else {
-                return Ok(BTreeSet::new());
-            };
-
             let mut set = BTreeSet::new();
-            for entry in self.txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
+            for entry in self.txn.iter(
+                Db::Properties,
+                Scan::Prefix(&EdgePropertyIndex::index_prefix(label, property)),
+            )? {
                 let entry = entry?;
                 let edge_id = EdgePropertyIndex::decode_edge_id(entry.key)
                     .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
-                set.insert(edge_id);
+                let indexed_value = EdgePropertyIndex::decode_value(entry.key)
+                    .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
+                if filter.matches_indexed(&indexed_value) {
+                    set.insert(edge_id);
+                }
             }
             sets.push(set);
         }

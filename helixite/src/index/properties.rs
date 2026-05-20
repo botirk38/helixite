@@ -9,7 +9,7 @@ use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::WriteTxn;
 use crate::storage::engine::{Db, Scan};
-use crate::value::Value;
+use crate::value::{IndexedValue, Value};
 
 use super::codec::{KeyBuilder, KeyReader};
 use super::labels::NodeLabelIndex;
@@ -35,18 +35,6 @@ impl NodePropertyIndex {
         )
     }
 
-    pub(crate) fn lookup_prefix(label: &str, property: &str, value: &Value) -> Option<Vec<u8>> {
-        let value_bytes = value.to_index_key()?;
-        Some(
-            KeyBuilder::new()
-                .u8(0)
-                .str(label)
-                .str(property)
-                .bytes(&value_bytes)
-                .finish(),
-        )
-    }
-
     pub(crate) fn index_prefix(label: &str, property: &str) -> Vec<u8> {
         KeyBuilder::new().u8(0).str(label).str(property).finish()
     }
@@ -60,6 +48,14 @@ impl NodePropertyIndex {
         let id = reader.u64()?;
         reader.finish()?;
         Some(id)
+    }
+
+    pub(crate) fn decode_value(key: &[u8]) -> Option<IndexedValue> {
+        let mut reader = KeyReader::new(key);
+        reader.u8()?;
+        reader.str()?;
+        reader.str()?;
+        Value::from_index_key(reader.bytes()?)
     }
 }
 
@@ -84,18 +80,6 @@ impl EdgePropertyIndex {
         )
     }
 
-    pub(crate) fn lookup_prefix(label: &str, property: &str, value: &Value) -> Option<Vec<u8>> {
-        let value_bytes = value.to_index_key()?;
-        Some(
-            KeyBuilder::new()
-                .u8(1)
-                .str(label)
-                .str(property)
-                .bytes(&value_bytes)
-                .finish(),
-        )
-    }
-
     pub(crate) fn index_prefix(label: &str, property: &str) -> Vec<u8> {
         KeyBuilder::new().u8(1).str(label).str(property).finish()
     }
@@ -109,6 +93,14 @@ impl EdgePropertyIndex {
         let id = reader.u64()?;
         reader.finish()?;
         Some(id)
+    }
+
+    pub(crate) fn decode_value(key: &[u8]) -> Option<IndexedValue> {
+        let mut reader = KeyReader::new(key);
+        reader.u8()?;
+        reader.str()?;
+        reader.str()?;
+        Value::from_index_key(reader.bytes()?)
     }
 }
 
