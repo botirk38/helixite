@@ -19,6 +19,6 @@ pub use error::{HelixiteError, Result};
 pub use id::{EdgeId, NodeId};
 pub use index::vector::{HnswConfig, SimilarityKind};
 pub use node::Node;
-pub use query::{NodeQuery, NodeRefQuery, TraversalQuery};
+pub use query::{NodeQuery, NodeRefQuery, Page, TraversalQuery};
 pub use txn::{EdgeMut, EdgeMutBuilder, NodeMut, NodeMutBuilder, ReadTxn, WriteTxn};
 pub use value::Value;

@@ -1,6 +1,7 @@
 use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::node::Node;
+use crate::query::pagination::{Cursor, Page};
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
@@ -22,6 +23,7 @@ pub struct NodeQuery<'a, S: StorageEngine> {
     filters: Vec<PropertyFilter>,
     vector_search: Option<VectorSearch>,
     limit: Option<usize>,
+    after: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +41,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
             filters: Vec::new(),
             vector_search: None,
             limit: None,
+            after: None,
         }
     }
 
@@ -73,6 +76,11 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     }
 
     pub fn collect(self) -> Result<Vec<Node>> {
+        if self.after.is_some() {
+            return Err(HelixiteError::InvalidConfig(
+                "after() requires page()".into(),
+            ));
+        }
         self.storage.read(|txn| {
             let exec = NodeQueryExec {
                 txn,
@@ -80,12 +88,18 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
                 filters: self.filters,
                 vector_search: self.vector_search,
                 limit: self.limit,
+                after: None,
             };
             exec.collect()
         })
     }
 
     pub fn ids(self) -> Result<Vec<NodeId>> {
+        if self.after.is_some() {
+            return Err(HelixiteError::InvalidConfig(
+                "after() requires page()".into(),
+            ));
+        }
         self.storage.read(|txn| {
             let exec = NodeQueryExec {
                 txn,
@@ -93,12 +107,18 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
                 filters: self.filters,
                 vector_search: self.vector_search,
                 limit: self.limit,
+                after: None,
             };
             exec.resolve_ordered_ids()
         })
     }
 
     pub fn count(self) -> Result<usize> {
+        if self.after.is_some() {
+            return Err(HelixiteError::InvalidConfig(
+                "after() requires page()".into(),
+            ));
+        }
         self.storage.read(|txn| {
             let exec = NodeQueryExec {
                 txn,
@@ -106,9 +126,39 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
                 filters: self.filters,
                 vector_search: self.vector_search,
                 limit: None,
+                after: None,
             };
             let matching_ids = exec.resolve_ordered_ids()?;
             Ok(matching_ids.len())
+        })
+    }
+
+    pub fn after(mut self, cursor: impl Into<String>) -> Self {
+        self.after = Some(cursor.into());
+        self
+    }
+
+    pub fn page(self, size: usize) -> Result<Page<Node>> {
+        if self.limit.is_some() {
+            return Err(HelixiteError::InvalidConfig(
+                "limit() cannot be used with page()".into(),
+            ));
+        }
+        if size == 0 {
+            return Err(HelixiteError::InvalidConfig(
+                "page size must be greater than 0".into(),
+            ));
+        }
+        self.storage.read(|txn| {
+            let exec = NodeQueryExec {
+                txn,
+                label: self.label,
+                filters: self.filters,
+                vector_search: self.vector_search,
+                limit: None,
+                after: self.after,
+            };
+            exec.page(size)
         })
     }
 }
@@ -119,6 +169,7 @@ struct NodeQueryExec<'a> {
     filters: Vec<PropertyFilter>,
     vector_search: Option<VectorSearch>,
     limit: Option<usize>,
+    after: Option<String>,
 }
 
 impl NodeQueryExec<'_> {
@@ -305,5 +356,29 @@ impl NodeQueryExec<'_> {
             nodes.push(node);
         }
         Ok(nodes)
+    }
+
+    fn page(self, page_size: usize) -> Result<Page<Node>> {
+        let ordered_ids = self.resolve_ordered_ids()?;
+
+        let after = self
+            .after
+            .as_ref()
+            .map(|s| Cursor::decode_node(s))
+            .transpose()?;
+
+        let page = Page::from_iter(
+            ordered_ids,
+            page_size,
+            after.as_ref(),
+            |id| after.as_ref().is_some_and(|c| c.matches_node(*id)),
+            |id| Cursor::encode_node(*id),
+        )?;
+
+        let nodes = self.load_nodes(&page.items)?;
+        Ok(Page {
+            items: nodes,
+            next_cursor: page.next_cursor,
+        })
     }
 }

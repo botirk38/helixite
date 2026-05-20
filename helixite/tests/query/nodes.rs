@@ -495,3 +495,160 @@ fn test_nodes_limit_with_filters() {
         .unwrap();
     assert_eq!(nodes.len(), 2);
 }
+
+#[test]
+fn test_node_page_limit_conflict() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("User", Vec::new()).unwrap();
+
+    let err = db.nodes().label("User").limit(10).page(2).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("limit() cannot be used with page()")
+    );
+}
+
+#[test]
+fn test_node_page_first_page() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    for i in 0..5 {
+        db.add_node(
+            "User",
+            vec![("name".to_string(), Value::String(format!("User{i}")))],
+        )
+        .unwrap();
+    }
+
+    let page = db.nodes().label("User").page(2).unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert!(page.next_cursor.is_some());
+}
+
+#[test]
+fn test_node_page_second_page() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    for i in 0..5 {
+        db.add_node(
+            "User",
+            vec![("name".to_string(), Value::String(format!("User{i}")))],
+        )
+        .unwrap();
+    }
+
+    let page1 = db.nodes().label("User").page(2).unwrap();
+    assert_eq!(page1.items.len(), 2);
+    let cursor = page1.next_cursor.unwrap();
+
+    let page2 = db.nodes().label("User").after(cursor).page(2).unwrap();
+    assert_eq!(page2.items.len(), 2);
+    assert!(page2.next_cursor.is_some());
+
+    let page1_ids: std::collections::HashSet<_> = page1.items.iter().map(|n| n.id).collect();
+    let page2_ids: std::collections::HashSet<_> = page2.items.iter().map(|n| n.id).collect();
+    assert!(page1_ids.is_disjoint(&page2_ids));
+}
+
+#[test]
+fn test_node_page_last_page_no_next_cursor() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    for _i in 0..3 {
+        db.add_node("User", Vec::new()).unwrap();
+    }
+
+    let page1 = db.nodes().label("User").page(2).unwrap();
+    assert_eq!(page1.items.len(), 2);
+    let cursor = page1.next_cursor.unwrap();
+
+    let page2 = db.nodes().label("User").after(cursor).page(2).unwrap();
+    assert_eq!(page2.items.len(), 1);
+    assert!(page2.next_cursor.is_none());
+}
+
+#[test]
+fn test_node_page_invalid_cursor_format() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("User", Vec::new()).unwrap();
+
+    let err = db
+        .nodes()
+        .label("User")
+        .after("bad_cursor")
+        .page(2)
+        .unwrap_err();
+    assert!(err.to_string().contains("node cursor must start with 'n:'"));
+}
+
+#[test]
+fn test_node_page_stale_cursor() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("User", Vec::new()).unwrap();
+    db.add_node("User", Vec::new()).unwrap();
+
+    let stale_cursor = "n:999999";
+
+    let err = db
+        .nodes()
+        .label("User")
+        .after(stale_cursor)
+        .page(2)
+        .unwrap_err();
+    assert!(err.to_string().contains("cursor not found"));
+}
+
+#[test]
+fn test_node_count_rejects_after() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    for _i in 0..5 {
+        db.add_node("User", Vec::new()).unwrap();
+    }
+
+    let err = db.nodes().label("User").after("n:1").count().unwrap_err();
+    assert!(err.to_string().contains("after() requires page()"));
+}
+
+#[test]
+fn test_node_page_zero_size_rejected() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("User", Vec::new()).unwrap();
+
+    let err = db.nodes().label("User").page(0).unwrap_err();
+    assert!(err.to_string().contains("page size must be greater than 0"));
+}
+
+#[test]
+fn test_node_collect_rejects_after() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("User", Vec::new()).unwrap();
+
+    let err = db.nodes().label("User").after("n:1").collect().unwrap_err();
+    assert!(err.to_string().contains("after() requires page()"));
+}
+
+#[test]
+fn test_node_ids_rejects_after() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("User", Vec::new()).unwrap();
+
+    let err = db.nodes().label("User").after("n:1").ids().unwrap_err();
+    assert!(err.to_string().contains("after() requires page()"));
+}
