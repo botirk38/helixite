@@ -40,9 +40,6 @@ pub enum HelixiteError {
 
     #[error("Invalid config: {0}")]
     InvalidConfig(String),
-
-    #[error("Invalid pagination cursor: {0}")]
-    InvalidCursor(String),
 }
 
 impl From<heed::Error> for HelixiteError {

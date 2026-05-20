@@ -89,15 +89,6 @@ fn test_error_display_invalid_config() {
 }
 
 #[test]
-fn test_error_display_invalid_cursor() {
-    let err = HelixiteError::InvalidCursor("cursor not found in result set".into());
-    assert_eq!(
-        format!("{err}"),
-        "Invalid pagination cursor: cursor not found in result set"
-    );
-}
-
-#[test]
 fn test_error_debug() {
     let err = HelixiteError::Storage("test".into());
     let debug = format!("{err:?}");
