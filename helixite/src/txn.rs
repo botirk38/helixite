@@ -56,7 +56,7 @@ impl<'a> ReadTxn<'a> {
 }
 
 impl<'a> WriteTxn<'a> {
-    pub(crate) fn new(txn: &'a mut dyn StorageWriteTxn) -> Self {
+    pub fn new(txn: &'a mut dyn StorageWriteTxn) -> Self {
         Self { txn }
     }
 
