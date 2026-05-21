@@ -179,9 +179,3 @@ impl<S: StorageEngine> Helixite<S> {
         self.storage.close()
     }
 }
-
-impl<S: StorageEngine> Drop for Helixite<S> {
-    fn drop(&mut self) {
-        let _ = self.storage.close();
-    }
-}

@@ -82,7 +82,7 @@ pub trait StorageEngine: Send + Sync {
     where
         F: FnOnce(&mut dyn WriteTxn) -> Result<T>;
 
-    fn close(&self) -> Result<()> {
-        Ok(())
-    }
+    fn close(self) -> Result<()>
+    where
+        Self: Sized;
 }
