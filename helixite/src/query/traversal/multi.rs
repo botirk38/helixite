@@ -5,7 +5,7 @@ use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::index::edges::EdgeIndex;
 use crate::node::Node;
-use crate::query::traversal::{TraversalHop, TraversalQuery};
+use crate::query::traversal::TraversalQuery;
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
@@ -15,6 +15,27 @@ pub struct MultiHopTraversalQuery<'a, S: StorageEngine> {
     starts: Vec<NodeId>,
     hops: Vec<TraversalHop>,
     limit: Option<usize>,
+}
+
+#[derive(Clone)]
+struct TraversalHop {
+    direction: Direction,
+    label: Option<String>,
+}
+
+impl TraversalHop {
+    fn prefix_and_db(&self, node_id: NodeId) -> (Db, Vec<u8>) {
+        match self.direction {
+            Direction::Out => (
+                Db::OutEdges,
+                EdgeIndex::out_prefix(node_id, self.label.as_deref()),
+            ),
+            Direction::In => (
+                Db::InEdges,
+                EdgeIndex::in_prefix(node_id, self.label.as_deref()),
+            ),
+        }
+    }
 }
 
 impl<'a, S: StorageEngine> MultiHopTraversalQuery<'a, S> {
