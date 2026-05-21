@@ -4,8 +4,8 @@ use crate::edge::Edge;
 use crate::error::{HelixiteError, Result};
 use crate::index::properties::PropertyIndexRegistry;
 use crate::node::Node;
-use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
+use crate::storage::{ReadTxn, StorageEngine};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphStats {
@@ -51,8 +51,8 @@ impl GraphStats {
             let edge_count = labels.values().map(LabelCounts::edge_count).sum();
             let labels = labels.into_iter().map(LabelCounts::into_stats).collect();
             let indexes = IndexStats {
-                node_properties: node_index_stats(txn)?,
-                edge_properties: edge_index_stats(txn)?,
+                node_properties: IndexStats::node_properties(txn)?,
+                edge_properties: IndexStats::edge_properties(txn)?,
             };
 
             Ok(Self {
@@ -89,26 +89,26 @@ impl LabelCounts {
     }
 }
 
-fn indexed_properties(registry: PropertyIndexRegistry) -> BTreeMap<String, Vec<String>> {
-    registry
-        .into_indexes()
-        .into_iter()
-        .map(indexed_property_entry)
-        .collect()
-}
+impl IndexStats {
+    fn node_properties(txn: &dyn ReadTxn) -> Result<BTreeMap<String, Vec<String>>> {
+        let registry = PropertyIndexRegistry::load_nodes_from_txn(txn)?;
+        Ok(Self::properties(registry))
+    }
 
-fn indexed_property_entry(
-    (label, properties): (String, BTreeSet<String>),
-) -> (String, Vec<String>) {
-    (label, properties.into_iter().collect())
-}
+    fn edge_properties(txn: &dyn ReadTxn) -> Result<BTreeMap<String, Vec<String>>> {
+        let registry = PropertyIndexRegistry::load_edges_from_txn(txn)?;
+        Ok(Self::properties(registry))
+    }
 
-fn node_index_stats(txn: &dyn crate::storage::ReadTxn) -> Result<BTreeMap<String, Vec<String>>> {
-    let registry = PropertyIndexRegistry::load_nodes_from_txn(txn)?;
-    Ok(indexed_properties(registry))
-}
+    fn properties(registry: PropertyIndexRegistry) -> BTreeMap<String, Vec<String>> {
+        registry
+            .into_indexes()
+            .into_iter()
+            .map(Self::property_entry)
+            .collect()
+    }
 
-fn edge_index_stats(txn: &dyn crate::storage::ReadTxn) -> Result<BTreeMap<String, Vec<String>>> {
-    let registry = PropertyIndexRegistry::load_edges_from_txn(txn)?;
-    Ok(indexed_properties(registry))
+    fn property_entry((label, properties): (String, BTreeSet<String>)) -> (String, Vec<String>) {
+        (label, properties.into_iter().collect())
+    }
 }
