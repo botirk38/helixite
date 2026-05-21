@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::edge::Edge;
 use crate::error::{HelixiteError, Result};
@@ -47,37 +47,19 @@ impl GraphStats {
                 labels.entry(edge.label).or_default().edge_count += 1;
             }
 
-            let node_count = labels.values().map(|counts| counts.node_count).sum();
-            let edge_count = labels.values().map(|counts| counts.edge_count).sum();
-            let labels = labels
-                .into_iter()
-                .map(
-                    |(
-                        label,
-                        LabelCounts {
-                            node_count,
-                            edge_count,
-                        },
-                    )| LabelStats {
-                        label,
-                        node_count,
-                        edge_count,
-                    },
-                )
-                .collect();
+            let node_count = labels.values().map(LabelCounts::node_count).sum();
+            let edge_count = labels.values().map(LabelCounts::edge_count).sum();
+            let labels = labels.into_iter().map(LabelCounts::into_stats).collect();
+            let indexes = IndexStats {
+                node_properties: node_index_stats(txn)?,
+                edge_properties: edge_index_stats(txn)?,
+            };
 
             Ok(Self {
                 node_count,
                 edge_count,
                 labels,
-                indexes: IndexStats {
-                    node_properties: indexed_properties(
-                        PropertyIndexRegistry::load_nodes_from_txn(txn)?,
-                    ),
-                    edge_properties: indexed_properties(
-                        PropertyIndexRegistry::load_edges_from_txn(txn)?,
-                    ),
-                },
+                indexes,
             })
         })
     }
@@ -89,10 +71,44 @@ struct LabelCounts {
     edge_count: usize,
 }
 
+impl LabelCounts {
+    fn node_count(&self) -> usize {
+        self.node_count
+    }
+
+    fn edge_count(&self) -> usize {
+        self.edge_count
+    }
+
+    fn into_stats((label, counts): (String, Self)) -> LabelStats {
+        LabelStats {
+            label,
+            node_count: counts.node_count,
+            edge_count: counts.edge_count,
+        }
+    }
+}
+
 fn indexed_properties(registry: PropertyIndexRegistry) -> BTreeMap<String, Vec<String>> {
     registry
         .into_indexes()
         .into_iter()
-        .map(|(label, properties)| (label, properties.into_iter().collect()))
+        .map(indexed_property_entry)
         .collect()
+}
+
+fn indexed_property_entry(
+    (label, properties): (String, BTreeSet<String>),
+) -> (String, Vec<String>) {
+    (label, properties.into_iter().collect())
+}
+
+fn node_index_stats(txn: &dyn crate::storage::ReadTxn) -> Result<BTreeMap<String, Vec<String>>> {
+    let registry = PropertyIndexRegistry::load_nodes_from_txn(txn)?;
+    Ok(indexed_properties(registry))
+}
+
+fn edge_index_stats(txn: &dyn crate::storage::ReadTxn) -> Result<BTreeMap<String, Vec<String>>> {
+    let registry = PropertyIndexRegistry::load_edges_from_txn(txn)?;
+    Ok(indexed_properties(registry))
 }
