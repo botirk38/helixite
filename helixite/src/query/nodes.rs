@@ -7,7 +7,7 @@ use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
 use crate::value::Value;
 
-use crate::index::labels::LabelIndex;
+use crate::index::labels::NodeLabelIndex;
 use crate::index::properties::NodePropertyIndex;
 use crate::index::properties::PropertyIndexMetadata;
 use crate::index::vector::VectorIndex;
@@ -286,12 +286,12 @@ impl NodeQueryExec<'_> {
     }
 
     fn scan_ids_by_label(&self, label: &str, limit: Option<usize>) -> Result<Vec<NodeId>> {
-        let prefix = LabelIndex::prefix(label);
+        let prefix = NodeLabelIndex::prefix(label);
         let mut ids = Vec::new();
 
         for entry in self.txn.iter(Db::Labels, Scan::Prefix(&prefix))? {
             let entry = entry?;
-            let node_id = LabelIndex::decode_node_id(entry.key)
+            let node_id = NodeLabelIndex::decode_node_id(entry.key)
                 .ok_or_else(|| HelixiteError::Storage("corrupt label index key".into()))?;
             ids.push(node_id);
             if let Some(limit) = limit

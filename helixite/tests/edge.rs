@@ -617,5 +617,73 @@ fn test_get_edges_batch_fails_on_missing() {
     let e1 = db.add_edge(a, b, "knows", Vec::new()).unwrap();
 
     let result = db.get_edges(&[e1, 999, 1000]);
+
     assert!(matches!(result, Err(HelixiteError::EdgeNotFound(999))));
+}
+
+#[test]
+fn test_edge_label_index_persists_after_reopen() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, b, "follows", Vec::new()).unwrap();
+
+    drop(db);
+
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+    let knows = db.edges().label("knows").collect().unwrap();
+    assert_eq!(knows.len(), 1);
+    assert_eq!(knows[0].label, "knows");
+}
+
+#[test]
+fn test_delete_edge_removes_from_label_index() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    let edge = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    db.delete_edge(edge).unwrap();
+
+    let knows = db.edges().label("knows").collect().unwrap();
+    assert!(knows.is_empty());
+}
+
+#[test]
+fn test_mutate_edge_label_updates_label_index() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    let edge = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    db.update_edge(edge).set_label("follows").apply().unwrap();
+
+    let knows = db.edges().label("knows").collect().unwrap();
+    assert!(knows.is_empty());
+
+    let follows = db.edges().label("follows").collect().unwrap();
+    assert_eq!(follows.len(), 1);
+    assert_eq!(follows[0].id, edge);
+}
+
+#[test]
+fn test_delete_node_cascades_to_edge_label_index() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    db.delete_node(a).unwrap();
+
+    let knows = db.edges().label("knows").collect().unwrap();
+    assert!(knows.is_empty());
 }

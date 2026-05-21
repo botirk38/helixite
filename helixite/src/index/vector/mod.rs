@@ -4,7 +4,7 @@ mod similarity;
 
 use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
-use crate::index::labels::LabelIndex;
+use crate::index::labels::NodeLabelIndex;
 use crate::node::Node;
 use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
@@ -133,11 +133,11 @@ impl VectorIndex {
     }
 
     fn backfill(txn: &mut dyn WriteTxn, label: &str, property: &str) -> Result<()> {
-        let prefix = crate::index::labels::LabelIndex::prefix(label);
+        let prefix = crate::index::labels::NodeLabelIndex::prefix(label);
         let entries = txn.scan(Db::Labels, Scan::Prefix(&prefix), None)?;
         let nodes: Vec<_> = entries
             .iter()
-            .filter_map(|e| LabelIndex::decode_node_id(e.key))
+            .filter_map(|e| NodeLabelIndex::decode_node_id(e.key))
             .collect();
 
         for node_id in nodes {
