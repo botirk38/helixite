@@ -57,6 +57,13 @@ impl NodePropertyIndex {
         reader.str()?;
         IndexedValue::from_bytes(reader.bytes()?)
     }
+
+    fn unique_lookup_prefix(label: &str, property: &str, value: &Value) -> Option<Vec<u8>> {
+        Self::key(label, property, value, 0).map(|mut key| {
+            key.truncate(key.len() - std::mem::size_of::<NodeId>());
+            key
+        })
+    }
 }
 
 pub(crate) struct EdgePropertyIndex;
@@ -101,6 +108,13 @@ impl EdgePropertyIndex {
         reader.str()?;
         reader.str()?;
         IndexedValue::from_bytes(reader.bytes()?)
+    }
+
+    fn unique_lookup_prefix(label: &str, property: &str, value: &Value) -> Option<Vec<u8>> {
+        Self::key(label, property, value, 0).map(|mut key| {
+            key.truncate(key.len() - std::mem::size_of::<EdgeId>());
+            key
+        })
     }
 }
 
@@ -205,29 +219,6 @@ impl PropertyIndexRegistry {
 
         Ok(Self { indexes })
     }
-}
-
-fn ensure_unique_value(
-    txn: &dyn ReadTxn,
-    prefix: Vec<u8>,
-    entity: &str,
-    label: &str,
-    property: &str,
-) -> Result<()> {
-    if let Some(entry) = txn.iter(Db::Properties, Scan::Prefix(&prefix))?.next() {
-        entry?;
-        return Err(HelixiteError::DuplicateKey(format!(
-            "{entity} unique property {label}::{property}"
-        )));
-    }
-    Ok(())
-}
-
-fn index_entry_prefix(key: Option<Vec<u8>>, id_size: usize) -> Option<Vec<u8>> {
-    key.map(|mut key| {
-        key.truncate(key.len() - id_size);
-        key
-    })
 }
 
 pub(crate) struct NodePropertyIndexes;
@@ -381,12 +372,10 @@ impl NodePropertyIndexes {
         let registry = PropertyIndexRegistry::load_unique_nodes_from_txn(txn)?;
         for (property, value) in properties {
             if registry.contains(label, property)
-                && let Some(prefix) = index_entry_prefix(
-                    NodePropertyIndex::key(label, property, value, 0),
-                    std::mem::size_of::<NodeId>(),
-                )
+                && let Some(prefix) =
+                    NodePropertyIndex::unique_lookup_prefix(label, property, value)
             {
-                ensure_unique_value(txn, prefix, "node", label, property)?;
+                Self::ensure_unique_value(txn, prefix, label, property)?;
             }
         }
         Ok(())
@@ -401,10 +390,8 @@ impl NodePropertyIndexes {
         let registry = PropertyIndexRegistry::load_unique_nodes_from_txn(txn)?;
         for (property, value) in properties {
             if registry.contains(label, property)
-                && let Some(prefix) = index_entry_prefix(
-                    NodePropertyIndex::key(label, property, value, 0),
-                    std::mem::size_of::<NodeId>(),
-                )
+                && let Some(prefix) =
+                    NodePropertyIndex::unique_lookup_prefix(label, property, value)
             {
                 for entry in txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
                     let entry = entry?;
@@ -419,6 +406,21 @@ impl NodePropertyIndexes {
                     }
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn ensure_unique_value(
+        txn: &dyn ReadTxn,
+        prefix: Vec<u8>,
+        label: &str,
+        property: &str,
+    ) -> Result<()> {
+        if let Some(entry) = txn.iter(Db::Properties, Scan::Prefix(&prefix))?.next() {
+            entry?;
+            return Err(HelixiteError::DuplicateKey(format!(
+                "node unique property {label}::{property}"
+            )));
         }
         Ok(())
     }
@@ -671,12 +673,10 @@ impl EdgePropertyIndexes {
         let registry = PropertyIndexRegistry::load_unique_edges_from_txn(txn)?;
         for (property, value) in properties {
             if registry.contains(label, property)
-                && let Some(prefix) = index_entry_prefix(
-                    EdgePropertyIndex::key(label, property, value, 0),
-                    std::mem::size_of::<EdgeId>(),
-                )
+                && let Some(prefix) =
+                    EdgePropertyIndex::unique_lookup_prefix(label, property, value)
             {
-                ensure_unique_value(txn, prefix, "edge", label, property)?;
+                Self::ensure_unique_value(txn, prefix, label, property)?;
             }
         }
         Ok(())
@@ -691,10 +691,8 @@ impl EdgePropertyIndexes {
         let registry = PropertyIndexRegistry::load_unique_edges_from_txn(txn)?;
         for (property, value) in properties {
             if registry.contains(label, property)
-                && let Some(prefix) = index_entry_prefix(
-                    EdgePropertyIndex::key(label, property, value, 0),
-                    std::mem::size_of::<EdgeId>(),
-                )
+                && let Some(prefix) =
+                    EdgePropertyIndex::unique_lookup_prefix(label, property, value)
             {
                 for entry in txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
                     let entry = entry?;
@@ -709,6 +707,21 @@ impl EdgePropertyIndexes {
                     }
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn ensure_unique_value(
+        txn: &dyn ReadTxn,
+        prefix: Vec<u8>,
+        label: &str,
+        property: &str,
+    ) -> Result<()> {
+        if let Some(entry) = txn.iter(Db::Properties, Scan::Prefix(&prefix))?.next() {
+            entry?;
+            return Err(HelixiteError::DuplicateKey(format!(
+                "edge unique property {label}::{property}"
+            )));
         }
         Ok(())
     }
