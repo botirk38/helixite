@@ -31,15 +31,12 @@ pub struct IndexStats {
 impl GraphStats {
     pub(crate) fn load<S: StorageEngine>(storage: &S) -> Result<Self> {
         storage.read(|txn| {
-            let mut node_count = 0;
-            let mut edge_count = 0;
             let mut labels = BTreeMap::<String, LabelCounts>::new();
 
             for entry in txn.iter(Db::Nodes, Scan::All)? {
                 let entry = entry?;
                 let node: Node = bincode::deserialize(entry.value)
                     .map_err(|e| HelixiteError::Codec(e.to_string()))?;
-                node_count += 1;
                 labels.entry(node.label).or_default().node_count += 1;
             }
 
@@ -47,17 +44,26 @@ impl GraphStats {
                 let entry = entry?;
                 let edge: Edge = bincode::deserialize(entry.value)
                     .map_err(|e| HelixiteError::Codec(e.to_string()))?;
-                edge_count += 1;
                 labels.entry(edge.label).or_default().edge_count += 1;
             }
 
+            let node_count = labels.values().map(|counts| counts.node_count).sum();
+            let edge_count = labels.values().map(|counts| counts.edge_count).sum();
             let labels = labels
                 .into_iter()
-                .map(|(label, counts)| LabelStats {
-                    label,
-                    node_count: counts.node_count,
-                    edge_count: counts.edge_count,
-                })
+                .map(
+                    |(
+                        label,
+                        LabelCounts {
+                            node_count,
+                            edge_count,
+                        },
+                    )| LabelStats {
+                        label,
+                        node_count,
+                        edge_count,
+                    },
+                )
                 .collect();
 
             Ok(Self {
