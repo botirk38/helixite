@@ -255,7 +255,10 @@ fn test_edges_page_with_property_filter() {
         .page(1)
         .unwrap();
     assert_eq!(first.items.len(), 1);
-    assert_eq!(first.items[0].properties.get("since"), Some(&Value::Int(2020)));
+    assert_eq!(
+        first.items[0].properties.get("since"),
+        Some(&Value::Int(2020))
+    );
     assert!(first.next_cursor.is_none());
 
     let empty = db
