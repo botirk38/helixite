@@ -271,6 +271,21 @@ struct TraversalHop {
     label: Option<String>,
 }
 
+impl TraversalHop {
+    fn prefix_and_db(&self, node_id: NodeId) -> (Db, Vec<u8>) {
+        match self.direction {
+            Direction::Out => (
+                Db::OutEdges,
+                EdgeIndex::out_prefix(node_id, self.label.as_deref()),
+            ),
+            Direction::In => (
+                Db::InEdges,
+                EdgeIndex::in_prefix(node_id, self.label.as_deref()),
+            ),
+        }
+    }
+}
+
 impl<'a, S: StorageEngine> MultiHopTraversalQuery<'a, S> {
     fn new(storage: &'a S, starts: Vec<NodeId>) -> Self {
         Self {
@@ -387,20 +402,14 @@ impl MultiHopTraversalExec<'_> {
 
     fn resolve_node_ids(&self) -> Result<Vec<NodeId>> {
         let mut current: BTreeSet<NodeId> = self.starts.iter().copied().collect();
+        if self.hops.is_empty() {
+            return Ok(self.limited_ids(current));
+        }
 
         for hop in &self.hops {
             let mut next = BTreeSet::new();
             for node_id in &current {
-                let (db, prefix) = match hop.direction {
-                    Direction::Out => (
-                        Db::OutEdges,
-                        EdgeIndex::out_prefix(*node_id, hop.label.as_deref()),
-                    ),
-                    Direction::In => (
-                        Db::InEdges,
-                        EdgeIndex::in_prefix(*node_id, hop.label.as_deref()),
-                    ),
-                };
+                let (db, prefix) = hop.prefix_and_db(*node_id);
                 for entry in self.txn.iter(db, Scan::Prefix(&prefix))? {
                     let entry = entry?;
                     let edge = self.load_edge_from_key(entry.key)?;
@@ -408,13 +417,20 @@ impl MultiHopTraversalExec<'_> {
                 }
             }
             current = next;
+            if current.is_empty() {
+                break;
+            }
         }
 
-        let mut ids: Vec<_> = current.into_iter().collect();
+        Ok(self.limited_ids(current))
+    }
+
+    fn limited_ids(&self, ids: BTreeSet<NodeId>) -> Vec<NodeId> {
+        let mut ids: Vec<_> = ids.into_iter().collect();
         if let Some(limit) = self.limit {
             ids.truncate(limit);
         }
-        Ok(ids)
+        ids
     }
 
     fn load_edge_from_key(&self, key: &[u8]) -> Result<Edge> {
