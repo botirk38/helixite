@@ -74,3 +74,43 @@ fn test_read_txn_multiple_ops() {
 
     assert_eq!(result, (id1, id2, id3));
 }
+
+#[test]
+fn test_batch_write_multiple_ops() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let (a, b, edge) = db
+        .batch(|tx| {
+            let a = tx.add_node(
+                "User",
+                [("name".to_string(), Value::String("Alice".into()))],
+            )?;
+            let b = tx.add_node("User", [("name".to_string(), Value::String("Bob".into()))])?;
+            let edge = tx.add_edge(a, b, "knows", [("since".to_string(), Value::Int(2024))])?;
+            Ok((a, b, edge))
+        })
+        .unwrap();
+
+    assert_eq!(db.get_node(a).unwrap().label, "User");
+    assert_eq!(db.get_node(b).unwrap().label, "User");
+    assert_eq!(db.get_edge(edge).unwrap().from, a);
+}
+
+#[test]
+fn test_batch_rolls_back_on_error() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let result = db.batch(|tx| {
+        tx.add_node(
+            "User",
+            [("name".to_string(), Value::String("Alice".into()))],
+        )?;
+        tx.get_node(999)?;
+        Ok(())
+    });
+
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
+    assert_eq!(db.nodes().label("User").count().unwrap(), 0);
+}

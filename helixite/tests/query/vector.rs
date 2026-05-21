@@ -404,7 +404,7 @@ fn test_mutate_node_vector_property() {
         )
         .unwrap();
 
-    db.write(|tx| {
+    db.batch(|tx| {
         tx.node(id)
             .set_property("embedding", Value::Vector(vec![0.0, 1.0, 0.0]))
             .apply()
@@ -439,7 +439,7 @@ fn test_mutate_node_remove_vector_property() {
         )
         .unwrap();
 
-    db.write(|tx| tx.node(id).remove_property("embedding").apply())
+    db.batch(|tx| tx.node(id).remove_property("embedding").apply())
         .unwrap();
 
     let ids = db
@@ -473,7 +473,7 @@ fn test_mutate_node_label_with_vector_property() {
         )
         .unwrap();
 
-    db.write(|tx| tx.node(id).set_label("Doc").apply()).unwrap();
+    db.batch(|tx| tx.node(id).set_label("Doc").apply()).unwrap();
 
     let chunk_ids = db
         .nodes()

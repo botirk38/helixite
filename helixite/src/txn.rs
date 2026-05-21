@@ -444,7 +444,7 @@ impl<S: StorageEngine> NodeMutBuilder<'_, S> {
     impl_mut_builder_methods!();
 
     pub fn apply(self) -> Result<()> {
-        self.db.write(|tx| {
+        self.db.write_transaction(|tx| {
             let mut node_mut = tx.node(self.id);
             for op in self.ops {
                 node_mut = match op {
@@ -477,7 +477,7 @@ impl<S: StorageEngine> EdgeMutBuilder<'_, S> {
     impl_mut_builder_methods!();
 
     pub fn apply(self) -> Result<()> {
-        self.db.write(|tx| {
+        self.db.write_transaction(|tx| {
             let mut edge_mut = tx.edge(self.id);
             for op in self.ops {
                 edge_mut = match op {
