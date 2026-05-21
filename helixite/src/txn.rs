@@ -493,7 +493,7 @@ impl<S: StorageEngine> NodeMutBuilder<'_, S> {
                     MutOp::SetProperty(k, v) => node_mut.set_property(k, v),
                     MutOp::RemoveProperty(k) => node_mut.remove_property(k),
                     MutOp::ReplaceProperties(p) => node_mut.replace_properties(p),
-                    MutOp::SetFrom(_) | MutOp::SetTo(_) => node_mut,
+                    MutOp::SetFrom(_) | MutOp::SetTo(_) => unreachable!(),
                 };
             }
             node_mut.apply()
