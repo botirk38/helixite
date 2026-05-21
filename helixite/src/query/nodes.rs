@@ -1,27 +1,17 @@
 use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::node::Node;
+use crate::query::filter::PropertyFilter;
 use crate::query::pagination::{Cursor, Page};
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
-use crate::value::{IndexedValue, Value};
+use crate::value::Value;
 
 use crate::index::labels::NodeLabelIndex;
 use crate::index::properties::NodePropertyIndex;
 use crate::index::properties::PropertyIndexMetadata;
 use crate::index::vector::VectorIndex;
-
-#[derive(Debug, Clone)]
-pub(crate) enum PropertyFilter {
-    Eq(String, Value),
-    Ne(String, Value),
-    Gt(String, Value),
-    Gte(String, Value),
-    Lt(String, Value),
-    Lte(String, Value),
-    In(String, Vec<Value>),
-}
 
 pub struct NodeQuery<'a, S: StorageEngine> {
     storage: &'a S,
@@ -427,46 +417,5 @@ impl NodeQueryExec<'_> {
             items: nodes,
             next_cursor: page.next_cursor,
         })
-    }
-}
-
-impl PropertyFilter {
-    pub(crate) fn property(&self) -> &str {
-        match self {
-            PropertyFilter::Eq(property, _)
-            | PropertyFilter::Ne(property, _)
-            | PropertyFilter::Gt(property, _)
-            | PropertyFilter::Gte(property, _)
-            | PropertyFilter::Lt(property, _)
-            | PropertyFilter::Lte(property, _)
-            | PropertyFilter::In(property, _) => property,
-        }
-    }
-
-    pub(crate) fn matches_indexed(&self, indexed_value: &IndexedValue) -> bool {
-        match self {
-            PropertyFilter::Eq(_, value) => {
-                value.to_indexed_value().as_ref() == Some(indexed_value)
-            }
-            PropertyFilter::Ne(_, value) => {
-                value.to_indexed_value().as_ref() != Some(indexed_value)
-            }
-            PropertyFilter::Gt(_, value) => value
-                .to_indexed_value()
-                .is_some_and(|filter_value| indexed_value > &filter_value),
-            PropertyFilter::Gte(_, value) => value
-                .to_indexed_value()
-                .is_some_and(|filter_value| indexed_value >= &filter_value),
-            PropertyFilter::Lt(_, value) => value
-                .to_indexed_value()
-                .is_some_and(|filter_value| indexed_value < &filter_value),
-            PropertyFilter::Lte(_, value) => value
-                .to_indexed_value()
-                .is_some_and(|filter_value| indexed_value <= &filter_value),
-            PropertyFilter::In(_, values) => values
-                .iter()
-                .filter_map(Value::to_indexed_value)
-                .any(|filter_value| indexed_value == &filter_value),
-        }
     }
 }

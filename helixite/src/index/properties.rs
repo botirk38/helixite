@@ -55,7 +55,7 @@ impl NodePropertyIndex {
         reader.u8()?;
         reader.str()?;
         reader.str()?;
-        Value::from_index_key(reader.bytes()?)
+        IndexedValue::from_bytes(reader.bytes()?)
     }
 }
 
@@ -100,7 +100,7 @@ impl EdgePropertyIndex {
         reader.u8()?;
         reader.str()?;
         reader.str()?;
-        Value::from_index_key(reader.bytes()?)
+        IndexedValue::from_bytes(reader.bytes()?)
     }
 }
 

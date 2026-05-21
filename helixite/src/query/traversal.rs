@@ -4,7 +4,7 @@ use crate::edge::{Direction, Edge};
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
-use crate::query::nodes::PropertyFilter;
+use crate::query::filter::PropertyFilter;
 use crate::query::pagination::{Cursor, Page};
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
@@ -14,17 +14,6 @@ use crate::value::Value;
 use crate::index::edges::EdgeIndex;
 use crate::index::properties::EdgePropertyIndex;
 use crate::index::properties::PropertyIndexMetadata;
-
-#[derive(Debug, Clone)]
-pub(crate) enum EdgePropertyFilter {
-    Eq(String, Value),
-    Ne(String, Value),
-    Gt(String, Value),
-    Gte(String, Value),
-    Lt(String, Value),
-    Lte(String, Value),
-    In(String, Vec<Value>),
-}
 
 pub struct NodeRefQuery<'a, S: StorageEngine> {
     storage: &'a S,
@@ -36,7 +25,7 @@ pub struct TraversalQuery<'a, S: StorageEngine> {
     node_id: NodeId,
     direction: Direction,
     label: Option<String>,
-    filters: Vec<EdgePropertyFilter>,
+    filters: Vec<PropertyFilter>,
     limit: Option<usize>,
     after: Option<String>,
 }
@@ -98,37 +87,37 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
 impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
     pub fn eq(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Eq(property.into(), value));
+            .push(PropertyFilter::Eq(property.into(), value));
         self
     }
 
     pub fn ne(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Ne(property.into(), value));
+            .push(PropertyFilter::Ne(property.into(), value));
         self
     }
 
     pub fn gt(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Gt(property.into(), value));
+            .push(PropertyFilter::Gt(property.into(), value));
         self
     }
 
     pub fn gte(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Gte(property.into(), value));
+            .push(PropertyFilter::Gte(property.into(), value));
         self
     }
 
     pub fn lt(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Lt(property.into(), value));
+            .push(PropertyFilter::Lt(property.into(), value));
         self
     }
 
     pub fn lte(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Lte(property.into(), value));
+            .push(PropertyFilter::Lte(property.into(), value));
         self
     }
 
@@ -137,7 +126,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
         property: impl Into<String>,
         values: impl IntoIterator<Item = Value>,
     ) -> Self {
-        self.filters.push(EdgePropertyFilter::In(
+        self.filters.push(PropertyFilter::In(
             property.into(),
             values.into_iter().collect(),
         ));
@@ -280,7 +269,7 @@ struct TraversalExec<'a> {
     node_id: NodeId,
     direction: Direction,
     label: Option<String>,
-    filters: Vec<EdgePropertyFilter>,
+    filters: Vec<PropertyFilter>,
     limit: Option<usize>,
     after: Option<String>,
 }
@@ -632,46 +621,5 @@ impl TraversalExec<'_> {
             items: nodes,
             next_cursor: page.next_cursor,
         })
-    }
-}
-
-impl EdgePropertyFilter {
-    pub(crate) fn property(&self) -> &str {
-        match self {
-            EdgePropertyFilter::Eq(property, _)
-            | EdgePropertyFilter::Ne(property, _)
-            | EdgePropertyFilter::Gt(property, _)
-            | EdgePropertyFilter::Gte(property, _)
-            | EdgePropertyFilter::Lt(property, _)
-            | EdgePropertyFilter::Lte(property, _)
-            | EdgePropertyFilter::In(property, _) => property,
-        }
-    }
-
-    pub(crate) fn matches_indexed(&self, indexed_value: &crate::value::IndexedValue) -> bool {
-        let filter = match self {
-            EdgePropertyFilter::Eq(property, value) => {
-                PropertyFilter::Eq(property.clone(), value.clone())
-            }
-            EdgePropertyFilter::Ne(property, value) => {
-                PropertyFilter::Ne(property.clone(), value.clone())
-            }
-            EdgePropertyFilter::Gt(property, value) => {
-                PropertyFilter::Gt(property.clone(), value.clone())
-            }
-            EdgePropertyFilter::Gte(property, value) => {
-                PropertyFilter::Gte(property.clone(), value.clone())
-            }
-            EdgePropertyFilter::Lt(property, value) => {
-                PropertyFilter::Lt(property.clone(), value.clone())
-            }
-            EdgePropertyFilter::Lte(property, value) => {
-                PropertyFilter::Lte(property.clone(), value.clone())
-            }
-            EdgePropertyFilter::In(property, values) => {
-                PropertyFilter::In(property.clone(), values.clone())
-            }
-        };
-        filter.matches_indexed(indexed_value)
     }
 }

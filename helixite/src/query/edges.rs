@@ -6,8 +6,8 @@ use crate::id::EdgeId;
 use crate::index::labels::EdgeLabelIndex;
 use crate::index::properties::EdgePropertyIndex;
 use crate::index::properties::PropertyIndexMetadata;
+use crate::query::filter::PropertyFilter;
 use crate::query::pagination::{Cursor, Page};
-use crate::query::traversal::EdgePropertyFilter;
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
@@ -16,7 +16,7 @@ use crate::value::Value;
 pub struct EdgeQuery<'a, S: StorageEngine> {
     storage: &'a S,
     label: Option<String>,
-    filters: Vec<EdgePropertyFilter>,
+    filters: Vec<PropertyFilter>,
     limit: Option<usize>,
     after: Option<String>,
 }
@@ -39,37 +39,37 @@ impl<'a, S: StorageEngine> EdgeQuery<'a, S> {
 
     pub fn eq(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Eq(property.into(), value));
+            .push(PropertyFilter::Eq(property.into(), value));
         self
     }
 
     pub fn ne(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Ne(property.into(), value));
+            .push(PropertyFilter::Ne(property.into(), value));
         self
     }
 
     pub fn gt(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Gt(property.into(), value));
+            .push(PropertyFilter::Gt(property.into(), value));
         self
     }
 
     pub fn gte(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Gte(property.into(), value));
+            .push(PropertyFilter::Gte(property.into(), value));
         self
     }
 
     pub fn lt(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Lt(property.into(), value));
+            .push(PropertyFilter::Lt(property.into(), value));
         self
     }
 
     pub fn lte(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Lte(property.into(), value));
+            .push(PropertyFilter::Lte(property.into(), value));
         self
     }
 
@@ -78,7 +78,7 @@ impl<'a, S: StorageEngine> EdgeQuery<'a, S> {
         property: impl Into<String>,
         values: impl IntoIterator<Item = Value>,
     ) -> Self {
-        self.filters.push(EdgePropertyFilter::In(
+        self.filters.push(PropertyFilter::In(
             property.into(),
             values.into_iter().collect(),
         ));
@@ -182,7 +182,7 @@ impl<'a, S: StorageEngine> EdgeQuery<'a, S> {
 struct EdgeQueryExec<'a> {
     txn: &'a dyn ReadTxn,
     label: Option<String>,
-    filters: Vec<EdgePropertyFilter>,
+    filters: Vec<PropertyFilter>,
     limit: Option<usize>,
     after: Option<String>,
 }
