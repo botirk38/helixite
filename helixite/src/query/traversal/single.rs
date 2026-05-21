@@ -3,16 +3,15 @@ use std::collections::BTreeSet;
 use crate::edge::{Direction, Edge};
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
+use crate::index::edges::EdgeIndex;
+use crate::index::properties::{EdgePropertyIndex, PropertyIndexMetadata};
 use crate::node::Node;
 use crate::query::pagination::{Cursor, Page};
+use crate::query::traversal::MultiHopTraversalQuery;
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
 use crate::value::Value;
-
-use crate::index::edges::EdgeIndex;
-use crate::index::properties::EdgePropertyIndex;
-use crate::index::properties::PropertyIndexMetadata;
 
 #[derive(Debug, Clone)]
 pub(crate) enum EdgePropertyFilter {
@@ -25,12 +24,12 @@ pub struct NodeRefQuery<'a, S: StorageEngine> {
 }
 
 pub struct TraversalQuery<'a, S: StorageEngine> {
-    storage: &'a S,
-    node_id: NodeId,
-    direction: Direction,
-    label: Option<String>,
+    pub(super) storage: &'a S,
+    pub(super) node_id: NodeId,
+    pub(super) direction: Direction,
+    pub(super) label: Option<String>,
     filters: Vec<EdgePropertyFilter>,
-    limit: Option<usize>,
+    pub(super) limit: Option<usize>,
     after: Option<String>,
 }
 
@@ -86,6 +85,22 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
             after: None,
         }
     }
+
+    pub fn then_outgoing(self, label: impl Into<String>) -> MultiHopTraversalQuery<'a, S> {
+        MultiHopTraversalQuery::new(self.storage, vec![self.node_id]).then_outgoing(label)
+    }
+
+    pub fn then_incoming(self, label: impl Into<String>) -> MultiHopTraversalQuery<'a, S> {
+        MultiHopTraversalQuery::new(self.storage, vec![self.node_id]).then_incoming(label)
+    }
+
+    pub fn then_outgoing_any(self) -> MultiHopTraversalQuery<'a, S> {
+        MultiHopTraversalQuery::new(self.storage, vec![self.node_id]).then_outgoing_any()
+    }
+
+    pub fn then_incoming_any(self) -> MultiHopTraversalQuery<'a, S> {
+        MultiHopTraversalQuery::new(self.storage, vec![self.node_id]).then_incoming_any()
+    }
 }
 
 impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
@@ -93,6 +108,22 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
         self.filters
             .push(EdgePropertyFilter::Eq(property.into(), value));
         self
+    }
+
+    pub fn then_outgoing(self, label: impl Into<String>) -> MultiHopTraversalQuery<'a, S> {
+        MultiHopTraversalQuery::from_traversal(self).then_outgoing(label)
+    }
+
+    pub fn then_incoming(self, label: impl Into<String>) -> MultiHopTraversalQuery<'a, S> {
+        MultiHopTraversalQuery::from_traversal(self).then_incoming(label)
+    }
+
+    pub fn then_outgoing_any(self) -> MultiHopTraversalQuery<'a, S> {
+        MultiHopTraversalQuery::from_traversal(self).then_outgoing_any()
+    }
+
+    pub fn then_incoming_any(self) -> MultiHopTraversalQuery<'a, S> {
+        MultiHopTraversalQuery::from_traversal(self).then_incoming_any()
     }
 
     pub fn limit(mut self, n: usize) -> Self {

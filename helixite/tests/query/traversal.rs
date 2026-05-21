@@ -53,6 +53,113 @@ fn test_node_traversal_any() {
 }
 
 #[test]
+fn test_multi_hop_then_outgoing() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(b, c, "knows", Vec::new()).unwrap();
+
+    let nodes = db
+        .node(a)
+        .outgoing("knows")
+        .then_outgoing("knows")
+        .nodes()
+        .unwrap();
+
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].id, c);
+}
+
+#[test]
+fn test_multi_hop_then_incoming() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(c, b, "follows", Vec::new()).unwrap();
+
+    let nodes = db
+        .node(a)
+        .outgoing("knows")
+        .then_incoming("follows")
+        .nodes()
+        .unwrap();
+
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].id, c);
+}
+
+#[test]
+fn test_multi_hop_from_node_ref_query() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(b, c, "likes", Vec::new()).unwrap();
+
+    let ids = db
+        .node(a)
+        .then_outgoing("knows")
+        .then_outgoing("likes")
+        .ids()
+        .unwrap();
+
+    assert_eq!(ids, vec![c]);
+}
+
+#[test]
+fn test_multi_hop_count_limit_and_first() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+    let d = db.add_node("D", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, c, "knows", Vec::new()).unwrap();
+    db.add_edge(b, d, "knows", Vec::new()).unwrap();
+    db.add_edge(c, d, "knows", Vec::new()).unwrap();
+
+    let query = db.node(a).then_outgoing("knows").then_outgoing("knows");
+
+    assert_eq!(query.count().unwrap(), 1);
+    assert_eq!(
+        db.node(a)
+            .then_outgoing("knows")
+            .then_outgoing("knows")
+            .limit(1)
+            .ids()
+            .unwrap(),
+        vec![d]
+    );
+    assert_eq!(
+        db.node(a)
+            .then_outgoing("knows")
+            .then_outgoing("knows")
+            .first_node()
+            .unwrap()
+            .unwrap()
+            .id,
+        d
+    );
+}
+
+#[test]
 fn test_traversal_persists_after_reopen() {
     let dir = tempdir().unwrap();
     let path = dir.path();
