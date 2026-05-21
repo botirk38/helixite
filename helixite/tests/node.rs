@@ -93,7 +93,7 @@ fn test_mutate_node_set_property() {
         )
         .unwrap();
 
-    db.write(|tx| {
+    db.batch(|tx| {
         tx.node(id)
             .set_property("name", Value::String("Bob".into()))
             .apply()
@@ -122,7 +122,7 @@ fn test_mutate_node_remove_property() {
         )
         .unwrap();
 
-    db.write(|tx| tx.node(id).remove_property("age").apply())
+    db.batch(|tx| tx.node(id).remove_property("age").apply())
         .unwrap();
 
     let node = db.get_node(id).unwrap();
@@ -148,7 +148,7 @@ fn test_mutate_node_replace_properties() {
         )
         .unwrap();
 
-    db.write(|tx| {
+    db.batch(|tx| {
         tx.node(id)
             .replace_properties(vec![
                 ("name".to_string(), Value::String("Bob".into())),
@@ -177,7 +177,7 @@ fn test_mutate_node_set_label() {
 
     let id = db.add_node("User", Vec::new()).unwrap();
 
-    db.write(|tx| tx.node(id).set_label("Person").apply())
+    db.batch(|tx| tx.node(id).set_label("Person").apply())
         .unwrap();
 
     let node = db.get_node(id).unwrap();
@@ -202,7 +202,7 @@ fn test_mutate_node_label_and_properties() {
         )
         .unwrap();
 
-    db.write(|tx| {
+    db.batch(|tx| {
         tx.node(id)
             .set_label("Person")
             .set_property("name", Value::String("Bob".into()))
@@ -232,7 +232,7 @@ fn test_mutate_node_persists_after_reopen() {
             )
             .unwrap();
 
-        db.write(|tx| {
+        db.batch(|tx| {
             tx.node(id)
                 .set_label("Person")
                 .set_property("name", Value::String("Bob".into()))
@@ -255,7 +255,7 @@ fn test_mutate_nonexistent_node_errors() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
-    let result = db.write(|tx| tx.node(999).apply());
+    let result = db.batch(|tx| tx.node(999).apply());
     assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
 }
 
@@ -271,7 +271,7 @@ fn test_mutate_node_empty_apply_is_noop() {
         )
         .unwrap();
 
-    db.write(|tx| tx.node(id).apply()).unwrap();
+    db.batch(|tx| tx.node(id).apply()).unwrap();
 
     let node = db.get_node(id).unwrap();
     assert_eq!(node.label, "User");
@@ -293,7 +293,7 @@ fn test_mutate_node_replace_properties_wins_over_set_property() {
         )
         .unwrap();
 
-    db.write(|tx| {
+    db.batch(|tx| {
         tx.node(id)
             .set_property("name", Value::String("Bob".into()))
             .replace_properties(vec![("name".to_string(), Value::String("Charlie".into()))])
@@ -320,7 +320,7 @@ fn test_mutate_node_set_property_wins_over_remove_property() {
         )
         .unwrap();
 
-    db.write(|tx| {
+    db.batch(|tx| {
         tx.node(id)
             .remove_property("name")
             .set_property("name", Value::String("Bob".into()))
@@ -350,7 +350,7 @@ fn test_mutate_node_label_remove_property_set_property_combined() {
         )
         .unwrap();
 
-    db.write(|tx| {
+    db.batch(|tx| {
         tx.node(id)
             .set_label("Person")
             .remove_property("age")
@@ -404,7 +404,7 @@ fn test_mutate_node_label_with_vector_and_scalar_property_change() {
         )
         .unwrap();
 
-    db.write(|tx| {
+    db.batch(|tx| {
         tx.node(id)
             .set_label("Doc")
             .set_property("title", Value::String("Updated".into()))

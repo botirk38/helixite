@@ -67,41 +67,7 @@ impl<S: StorageEngine> HelixiteStorageBuilder<S> {
 }
 
 impl<S: StorageEngine> Helixite<S> {
-    pub fn add_node(
-        &self,
-        label: impl Into<String>,
-        properties: impl IntoIterator<Item = (String, Value)>,
-    ) -> Result<NodeId> {
-        self.write(|tx| tx.add_node(label, properties))
-    }
-
-    pub fn get_node(&self, id: NodeId) -> Result<Node> {
-        self.read(|tx| tx.get_node(id))
-    }
-
-    pub fn add_edge(
-        &self,
-        from: NodeId,
-        to: NodeId,
-        label: impl Into<String>,
-        properties: impl IntoIterator<Item = (String, Value)>,
-    ) -> Result<EdgeId> {
-        self.write(|tx| tx.add_edge(from, to, label, properties))
-    }
-
-    pub fn get_edge(&self, id: EdgeId) -> Result<Edge> {
-        self.read(|tx| tx.get_edge(id))
-    }
-
-    pub fn delete_edge(&self, id: EdgeId) -> Result<()> {
-        self.write(|tx| tx.delete_edge(id))
-    }
-
-    pub fn delete_node(&self, id: NodeId) -> Result<()> {
-        self.write(|tx| tx.delete_node(id))
-    }
-
-    pub fn write<F, T>(&self, f: F) -> Result<T>
+    pub(crate) fn write_transaction<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&mut WriteTxn<'_>) -> Result<T>,
     {
@@ -118,7 +84,7 @@ impl<S: StorageEngine> Helixite<S> {
         })
     }
 
-    pub fn read<F, T>(&self, f: F) -> Result<T>
+    pub(crate) fn read_transaction<F, T>(&self, f: F) -> Result<T>
     where
         F: FnOnce(&ReadTxn<'_>) -> Result<T>,
     {
@@ -128,12 +94,60 @@ impl<S: StorageEngine> Helixite<S> {
         })
     }
 
+    pub fn add_node(
+        &self,
+        label: impl Into<String>,
+        properties: impl IntoIterator<Item = (String, Value)>,
+    ) -> Result<NodeId> {
+        self.write_transaction(|tx| tx.add_node(label, properties))
+    }
+
+    pub fn get_node(&self, id: NodeId) -> Result<Node> {
+        self.read_transaction(|tx| tx.get_node(id))
+    }
+
+    pub fn add_edge(
+        &self,
+        from: NodeId,
+        to: NodeId,
+        label: impl Into<String>,
+        properties: impl IntoIterator<Item = (String, Value)>,
+    ) -> Result<EdgeId> {
+        self.write_transaction(|tx| tx.add_edge(from, to, label, properties))
+    }
+
+    pub fn get_edge(&self, id: EdgeId) -> Result<Edge> {
+        self.read_transaction(|tx| tx.get_edge(id))
+    }
+
+    pub fn delete_edge(&self, id: EdgeId) -> Result<()> {
+        self.write_transaction(|tx| tx.delete_edge(id))
+    }
+
+    pub fn delete_node(&self, id: NodeId) -> Result<()> {
+        self.write_transaction(|tx| tx.delete_node(id))
+    }
+
+    pub fn batch<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&mut WriteTxn<'_>) -> Result<T>,
+    {
+        self.write_transaction(f)
+    }
+
+    pub fn read<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&ReadTxn<'_>) -> Result<T>,
+    {
+        self.read_transaction(f)
+    }
+
     pub fn get_nodes(&self, ids: &[NodeId]) -> Result<Vec<Node>> {
-        self.read(|tx| tx.get_nodes(ids))
+        self.read_transaction(|tx| tx.get_nodes(ids))
     }
 
     pub fn get_edges(&self, ids: &[EdgeId]) -> Result<Vec<Edge>> {
-        self.read(|tx| tx.get_edges(ids))
+        self.read_transaction(|tx| tx.get_edges(ids))
     }
 
     pub fn update_node(&self, id: NodeId) -> NodeMutBuilder<'_, S> {
