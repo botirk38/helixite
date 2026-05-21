@@ -12,7 +12,7 @@ use crate::storage::engine::{Db, Scan};
 use crate::value::Value;
 
 use super::codec::{KeyBuilder, KeyReader};
-use super::labels::LabelIndex;
+use super::labels::NodeLabelIndex;
 
 pub(crate) struct NodePropertyIndex;
 
@@ -222,7 +222,7 @@ impl NodePropertyIndexes {
     }
 
     fn label_exists(txn: &dyn ReadTxn, label: &str) -> Result<bool> {
-        let prefix = LabelIndex::prefix(label);
+        let prefix = NodeLabelIndex::prefix(label);
         if let Some(entry) = txn.iter(Db::Labels, Scan::Prefix(&prefix))?.next() {
             entry?;
             return Ok(true);
@@ -231,11 +231,11 @@ impl NodePropertyIndexes {
     }
 
     fn backfill(txn: &mut dyn WriteTxn, label: &str, property: &str) -> Result<()> {
-        let prefix = LabelIndex::prefix(label);
+        let prefix = NodeLabelIndex::prefix(label);
         let entries = txn.scan(Db::Labels, Scan::Prefix(&prefix), None)?;
         let nodes: Vec<_> = entries
             .iter()
-            .filter_map(|e| LabelIndex::decode_node_id(e.key))
+            .filter_map(|e| NodeLabelIndex::decode_node_id(e.key))
             .collect();
 
         for node_id in nodes {

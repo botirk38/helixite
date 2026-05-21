@@ -11,6 +11,7 @@ use crate::value::Value;
 
 use crate::db::Helixite;
 use crate::index::edges::EdgeIndex;
+use crate::index::labels::EdgeLabelIndex;
 use crate::index::nodes::NodeIndexes;
 use crate::index::properties::EdgePropertyIndexes;
 use crate::index::properties::PropertyIndexRegistry;
@@ -56,7 +57,7 @@ impl<'a> ReadTxn<'a> {
 }
 
 impl<'a> WriteTxn<'a> {
-    pub fn new(txn: &'a mut dyn StorageWriteTxn) -> Self {
+    pub(crate) fn new(txn: &'a mut dyn StorageWriteTxn) -> Self {
         Self { txn }
     }
 
@@ -166,6 +167,9 @@ impl<'a> WriteTxn<'a> {
         EdgeIndex::insert(self.txn, from, to, &label, next_id)?;
         EdgePropertyIndexes::insert(self.txn, &registered, &edge)?;
 
+        let label_key = EdgeLabelIndex::key(&label, next_id);
+        self.txn.put(Db::Labels, &label_key, &[])?;
+
         Ok(next_id)
     }
 
@@ -183,6 +187,8 @@ impl<'a> WriteTxn<'a> {
 
         let registered = PropertyIndexRegistry::load_edges_from_txn(self.txn)?;
 
+        let label_key = EdgeLabelIndex::key(&edge.label, edge.id);
+        self.txn.delete(Db::Labels, &label_key)?;
         EdgeIndex::delete(self.txn, edge.from, edge.to, &edge.label, edge.id)?;
         EdgePropertyIndexes::delete(self.txn, &registered, &edge)?;
         self.txn.delete(Db::Edges, &edge.id.to_be_bytes())?;
@@ -354,6 +360,11 @@ impl<'a> EdgeMut<'a> {
                 &label,
                 self.id,
             )?;
+
+            let old_label_key = EdgeLabelIndex::key(&current.label, self.id);
+            self.txn.delete(Db::Labels, &old_label_key)?;
+            let new_label_key = EdgeLabelIndex::key(&label, self.id);
+            self.txn.put(Db::Labels, &new_label_key, &[])?;
         }
 
         let updated = Edge {
@@ -389,6 +400,10 @@ fn delete_edge_from_txn(
 
     EdgeIndex::delete(txn, edge.from, edge.to, &edge.label, edge.id)?;
     EdgePropertyIndexes::delete(txn, edge_registry, &edge)?;
+
+    let label_key = EdgeLabelIndex::key(&edge.label, edge.id);
+    txn.delete(Db::Labels, &label_key)?;
+
     txn.delete(Db::Edges, &edge.id.to_be_bytes())?;
 
     Ok(())

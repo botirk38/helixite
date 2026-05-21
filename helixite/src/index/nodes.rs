@@ -8,7 +8,7 @@ use crate::storage::WriteTxn;
 use crate::storage::engine::Db;
 use crate::value::Value;
 
-use super::labels::LabelIndex;
+use super::labels::NodeLabelIndex;
 use super::properties::NodePropertyIndex;
 use super::properties::NodePropertyIndexes;
 use super::properties::PropertyIndexRegistry;
@@ -46,7 +46,7 @@ impl NodeIndexes {
         properties: &BTreeMap<String, Value>,
         registered_indexes: &PropertyIndexRegistry,
     ) -> Result<()> {
-        let label_key = LabelIndex::key(label, id);
+        let label_key = NodeLabelIndex::key(label, id);
         txn.put(Db::Labels, &label_key, &[])?;
 
         for (prop_name, value) in properties {
@@ -76,9 +76,9 @@ impl NodeIndexes {
         registered_indexes: &PropertyIndexRegistry,
     ) -> Result<()> {
         if old_label != new_label {
-            let old_key = LabelIndex::key(old_label, id);
+            let old_key = NodeLabelIndex::key(old_label, id);
             txn.delete(Db::Labels, &old_key)?;
-            let new_key = LabelIndex::key(new_label, id);
+            let new_key = NodeLabelIndex::key(new_label, id);
             txn.put(Db::Labels, &new_key, &[])?;
 
             for (prop_name, old_value) in old_props {
@@ -168,7 +168,7 @@ impl NodeIndexes {
         node: &Node,
         registered_indexes: &PropertyIndexRegistry,
     ) -> Result<()> {
-        let label_key = LabelIndex::key(&node.label, node.id);
+        let label_key = NodeLabelIndex::key(&node.label, node.id);
         txn.delete(Db::Labels, &label_key)?;
 
         for (prop_name, value) in &node.properties {

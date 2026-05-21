@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use crate::edge::Edge;
 use crate::error::{HelixiteError, Result};
 use crate::id::EdgeId;
+use crate::index::labels::EdgeLabelIndex;
 use crate::index::properties::EdgePropertyIndex;
 use crate::index::properties::PropertyIndexMetadata;
 use crate::query::pagination::{Cursor, Page};
@@ -152,14 +153,14 @@ impl EdgeQueryExec<'_> {
 
     fn resolve_ordered_ids(&self) -> Result<Vec<EdgeId>> {
         let mut ids = if self.filters.is_empty() {
-            self.scan_all_edge_ids()?
+            if let Some(ref label) = self.label {
+                self.scan_label_ids(label)?
+            } else {
+                self.scan_all_edge_ids()?
+            }
         } else {
             self.resolve_filter_ids()?.into_iter().collect()
         };
-
-        if let Some(ref label) = self.label {
-            ids = self.retain_label(ids, label)?;
-        }
 
         if let Some(limit) = self.limit {
             ids.truncate(limit);
@@ -173,7 +174,11 @@ impl EdgeQueryExec<'_> {
             HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
         })?;
 
-        let mut sets: Vec<BTreeSet<EdgeId>> = Vec::with_capacity(self.filters.len());
+        let mut sets: Vec<BTreeSet<EdgeId>> = Vec::with_capacity(self.filters.len() + 1);
+
+        let label_ids: BTreeSet<EdgeId> = self.scan_label_ids(label)?.into_iter().collect();
+        sets.push(label_ids);
+
         for filter in &self.filters {
             let EdgePropertyFilter::Eq(property, value) = filter;
 
@@ -212,6 +217,20 @@ impl EdgeQueryExec<'_> {
         }
     }
 
+    fn scan_label_ids(&self, label: &str) -> Result<Vec<EdgeId>> {
+        let prefix = EdgeLabelIndex::prefix(label);
+        let mut ids = Vec::new();
+
+        for entry in self.txn.iter(Db::Labels, Scan::Prefix(&prefix))? {
+            let entry = entry?;
+            let edge_id = EdgeLabelIndex::decode_edge_id(entry.key)
+                .ok_or_else(|| HelixiteError::Storage("corrupt edge label index key".into()))?;
+            ids.push(edge_id);
+        }
+        ids.sort_unstable();
+        Ok(ids)
+    }
+
     fn scan_all_edge_ids(&self) -> Result<Vec<EdgeId>> {
         let mut ids = Vec::new();
         for entry in self.txn.iter(Db::Edges, Scan::All)? {
@@ -224,17 +243,6 @@ impl EdgeQueryExec<'_> {
         }
         ids.sort_unstable();
         Ok(ids)
-    }
-
-    fn retain_label(&self, ids: Vec<EdgeId>, label: &str) -> Result<Vec<EdgeId>> {
-        let mut filtered = Vec::new();
-        for id in ids {
-            let edge = self.load_edge(id)?;
-            if edge.label == label {
-                filtered.push(id);
-            }
-        }
-        Ok(filtered)
     }
 
     fn load_edges(&self, ids: &[EdgeId]) -> Result<Vec<Edge>> {
