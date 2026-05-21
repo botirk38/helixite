@@ -71,13 +71,6 @@ impl<S: StorageEngine> Helixite<S> {
     where
         F: FnOnce(&mut WriteTxn<'_>) -> Result<T>,
     {
-        self.batch(f)
-    }
-
-    pub fn batch<F, T>(&self, f: F) -> Result<T>
-    where
-        F: FnOnce(&mut WriteTxn<'_>) -> Result<T>,
-    {
         self.storage.write(|txn| {
             let mut tx = WriteTxn::new(txn);
             f(&mut tx)
