@@ -210,6 +210,8 @@ enum MutOp {
     SetProperty(String, Value),
     RemoveProperty(String),
     ReplaceProperties(BTreeMap<String, Value>),
+    SetFrom(NodeId),
+    SetTo(NodeId),
 }
 
 macro_rules! impl_mut_builder_methods {
@@ -253,6 +255,7 @@ fn apply_ops(label: &mut String, properties: &mut BTreeMap<String, Value>, ops: 
             MutOp::ReplaceProperties(props) => {
                 *properties = props.clone();
             }
+            MutOp::SetFrom(_) | MutOp::SetTo(_) => {}
         }
     }
 }
@@ -334,6 +337,16 @@ impl<'a> EdgeMut<'a> {
 
     impl_mut_builder_methods!();
 
+    pub fn set_from(mut self, node_id: NodeId) -> Self {
+        self.ops.push(MutOp::SetFrom(node_id));
+        self
+    }
+
+    pub fn set_to(mut self, node_id: NodeId) -> Self {
+        self.ops.push(MutOp::SetTo(node_id));
+        self
+    }
+
     pub fn apply(self) -> Result<()> {
         let current_bytes = self
             .txn
@@ -345,22 +358,35 @@ impl<'a> EdgeMut<'a> {
 
         let mut label = current.label.clone();
         let mut properties = current.properties.clone();
+        let mut from = current.from;
+        let mut to = current.to;
         apply_ops(&mut label, &mut properties, &self.ops);
+        for op in &self.ops {
+            match op {
+                MutOp::SetFrom(node_id) => from = *node_id,
+                MutOp::SetTo(node_id) => to = *node_id,
+                MutOp::SetLabel(_)
+                | MutOp::SetProperty(_, _)
+                | MutOp::RemoveProperty(_)
+                | MutOp::ReplaceProperties(_) => {}
+            }
+        }
 
-        NodeIndexes::validate_from_txn(self.txn, &label, &properties)?;
+        if self.txn.get(Db::Nodes, &from.to_be_bytes())?.is_none() {
+            return Err(HelixiteError::NodeNotFound(from));
+        }
+        if self.txn.get(Db::Nodes, &to.to_be_bytes())?.is_none() {
+            return Err(HelixiteError::NodeNotFound(to));
+        }
 
         let registered = PropertyIndexRegistry::load_edges_from_txn(self.txn)?;
 
-        if label != current.label {
-            EdgeIndex::replace_label(
-                self.txn,
-                current.from,
-                current.to,
-                &current.label,
-                &label,
-                self.id,
-            )?;
+        if label != current.label || from != current.from || to != current.to {
+            EdgeIndex::delete(self.txn, current.from, current.to, &current.label, self.id)?;
+            EdgeIndex::insert(self.txn, from, to, &label, self.id)?;
+        }
 
+        if label != current.label {
             let old_label_key = EdgeLabelIndex::key(&current.label, self.id);
             self.txn.delete(Db::Labels, &old_label_key)?;
             let new_label_key = EdgeLabelIndex::key(&label, self.id);
@@ -369,8 +395,8 @@ impl<'a> EdgeMut<'a> {
 
         let updated = Edge {
             id: self.id,
-            from: current.from,
-            to: current.to,
+            from,
+            to,
             label,
             properties,
         };
@@ -467,6 +493,7 @@ impl<S: StorageEngine> NodeMutBuilder<'_, S> {
                     MutOp::SetProperty(k, v) => node_mut.set_property(k, v),
                     MutOp::RemoveProperty(k) => node_mut.remove_property(k),
                     MutOp::ReplaceProperties(p) => node_mut.replace_properties(p),
+                    MutOp::SetFrom(_) | MutOp::SetTo(_) => unreachable!(),
                 };
             }
             node_mut.apply()
@@ -491,6 +518,16 @@ impl<S: StorageEngine> EdgeMutBuilder<'_, S> {
 
     impl_mut_builder_methods!();
 
+    pub fn set_from(mut self, node_id: NodeId) -> Self {
+        self.ops.push(MutOp::SetFrom(node_id));
+        self
+    }
+
+    pub fn set_to(mut self, node_id: NodeId) -> Self {
+        self.ops.push(MutOp::SetTo(node_id));
+        self
+    }
+
     pub fn apply(self) -> Result<()> {
         self.db.write_transaction(|tx| {
             let mut edge_mut = tx.edge(self.id);
@@ -500,6 +537,8 @@ impl<S: StorageEngine> EdgeMutBuilder<'_, S> {
                     MutOp::SetProperty(k, v) => edge_mut.set_property(k, v),
                     MutOp::RemoveProperty(k) => edge_mut.remove_property(k),
                     MutOp::ReplaceProperties(p) => edge_mut.replace_properties(p),
+                    MutOp::SetFrom(id) => edge_mut.set_from(id),
+                    MutOp::SetTo(id) => edge_mut.set_to(id),
                 };
             }
             edge_mut.apply()

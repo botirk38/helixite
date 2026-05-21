@@ -266,6 +266,45 @@ fn test_mutate_edge_label_and_properties() {
 }
 
 #[test]
+fn test_mutate_edge_set_from_and_to() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    let c = db.add_node("User", Vec::new()).unwrap();
+    let d = db.add_node("User", Vec::new()).unwrap();
+
+    let edge = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    db.update_edge(edge).set_from(c).set_to(d).apply().unwrap();
+
+    let updated = db.get_edge(edge).unwrap();
+    assert_eq!(updated.from, c);
+    assert_eq!(updated.to, d);
+    assert_eq!(db.node(a).outgoing("knows").count().unwrap(), 0);
+    assert_eq!(db.node(c).outgoing("knows").count().unwrap(), 1);
+    assert_eq!(db.node(b).incoming("knows").count().unwrap(), 0);
+    assert_eq!(db.node(d).incoming("knows").count().unwrap(), 1);
+}
+
+#[test]
+fn test_mutate_edge_set_from_missing_node_fails() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    let edge = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let result = db.update_edge(edge).set_from(999).apply();
+
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
+    assert_eq!(db.get_edge(edge).unwrap().from, a);
+    assert_eq!(db.node(a).outgoing("knows").count().unwrap(), 1);
+}
+
+#[test]
 fn test_mutate_edge_persists_after_reopen() {
     let dir = tempdir().unwrap();
     let path = dir.path();
