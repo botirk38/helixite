@@ -56,6 +56,13 @@ impl StorageEngine for LmdbStorage {
         }
         result
     }
+
+    fn close(self) -> Result<()> {
+        let event = self.env.clone().prepare_for_closing();
+        drop(self);
+        event.wait();
+        Ok(())
+    }
 }
 
 struct LmdbTxn<'e> {

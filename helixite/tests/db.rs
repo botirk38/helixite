@@ -21,6 +21,20 @@ fn test_reopen_db() {
 }
 
 #[test]
+fn test_close_syncs_and_consumes_db() {
+    let dir = tempdir().unwrap();
+    let path = dir.path();
+
+    let db = HelixiteBuilder::new().open(path).unwrap();
+    let node = db.add_node("User", Vec::new()).unwrap();
+
+    db.close().unwrap();
+
+    let db = HelixiteBuilder::new().open(path).unwrap();
+    assert_eq!(db.get_node(node).unwrap().id, node);
+}
+
+#[test]
 fn test_open_with_config() {
     let dir = tempdir().unwrap();
     let config = Config::default().with_map_size(64 * 1024 * 1024);

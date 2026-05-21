@@ -174,4 +174,8 @@ impl<S: StorageEngine> Helixite<S> {
     pub fn storage(&self) -> &S {
         &self.storage
     }
+
+    pub fn close(self) -> Result<()> {
+        self.storage.close()
+    }
 }
