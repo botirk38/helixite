@@ -31,12 +31,12 @@ impl PartialOrd for IndexedValue {
 
 impl Ord for IndexedValue {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.to_index_key().cmp(&other.to_index_key())
+        self.to_bytes().cmp(&other.to_bytes())
     }
 }
 
 impl IndexedValue {
-    fn to_index_key(&self) -> Vec<u8> {
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
         match self {
             IndexedValue::String(s) => {
                 let mut key = Vec::with_capacity(1 + s.len());
@@ -70,6 +70,34 @@ impl IndexedValue {
                 key.extend(b);
                 key
             }
+        }
+    }
+
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let (kind, value) = bytes.split_first()?;
+        match kind {
+            0 => String::from_utf8(value.to_vec()).ok().map(Self::String),
+            1 => {
+                let bytes: [u8; 8] = value.try_into().ok()?;
+                Some(Self::Int(i64::from_be_bytes(bytes)))
+            }
+            2 => match value {
+                [0] => Some(Self::Bool(false)),
+                [1] => Some(Self::Bool(true)),
+                _ => None,
+            },
+            3 => Some(Self::Bytes(value.to_vec())),
+            4 => {
+                let bytes: [u8; 8] = value.try_into().ok()?;
+                let ordered = u64::from_be_bytes(bytes);
+                let bits = if ordered >> 63 == 1 {
+                    ordered ^ (1 << 63)
+                } else {
+                    !ordered
+                };
+                Some(Self::Float(f64::from_bits(bits)))
+            }
+            _ => None,
         }
     }
 }
@@ -119,7 +147,7 @@ impl From<Vec<f32>> for Value {
 impl Value {
     pub(crate) fn to_index_key(&self) -> Option<Vec<u8>> {
         self.to_indexed_value()
-            .map(|indexed_value| indexed_value.to_index_key())
+            .map(|indexed_value| indexed_value.to_bytes())
     }
 
     pub(crate) fn to_indexed_value(&self) -> Option<IndexedValue> {
@@ -131,36 +159,6 @@ impl Value {
             Value::Bool(b) => Some(IndexedValue::Bool(*b)),
             Value::Bytes(b) => Some(IndexedValue::Bytes(b.clone())),
             Value::Vector(_) => None,
-        }
-    }
-
-    pub(crate) fn from_index_key(key: &[u8]) -> Option<IndexedValue> {
-        let (kind, value) = key.split_first()?;
-        match kind {
-            0 => String::from_utf8(value.to_vec())
-                .ok()
-                .map(IndexedValue::String),
-            1 => {
-                let bytes: [u8; 8] = value.try_into().ok()?;
-                Some(IndexedValue::Int(i64::from_be_bytes(bytes)))
-            }
-            2 => match value {
-                [0] => Some(IndexedValue::Bool(false)),
-                [1] => Some(IndexedValue::Bool(true)),
-                _ => None,
-            },
-            3 => Some(IndexedValue::Bytes(value.to_vec())),
-            4 => {
-                let bytes: [u8; 8] = value.try_into().ok()?;
-                let ordered = u64::from_be_bytes(bytes);
-                let bits = if ordered >> 63 == 1 {
-                    ordered ^ (1 << 63)
-                } else {
-                    !ordered
-                };
-                Some(IndexedValue::Float(f64::from_bits(bits)))
-            }
-            _ => None,
         }
     }
 }
