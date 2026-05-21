@@ -107,36 +107,41 @@ impl EdgePropertyIndex {
 pub(crate) struct PropertyIndexMetadata;
 
 impl PropertyIndexMetadata {
+    const NODE_PROPERTY: u8 = 0;
+    const EDGE_PROPERTY: u8 = 1;
+    const UNIQUE_NODE_PROPERTY: u8 = 2;
+    const UNIQUE_EDGE_PROPERTY: u8 = 3;
+
     pub(crate) fn node_key(label: &str, property: &str) -> Vec<u8> {
-        KeyBuilder::new().u8(0).str(label).str(property).finish()
+        Self::key(Self::NODE_PROPERTY, label, property)
     }
 
     pub(crate) fn edge_key(label: &str, property: &str) -> Vec<u8> {
-        KeyBuilder::new().u8(1).str(label).str(property).finish()
+        Self::key(Self::EDGE_PROPERTY, label, property)
     }
 
     pub(crate) fn unique_node_key(label: &str, property: &str) -> Vec<u8> {
-        KeyBuilder::new().u8(2).str(label).str(property).finish()
+        Self::key(Self::UNIQUE_NODE_PROPERTY, label, property)
     }
 
     pub(crate) fn unique_edge_key(label: &str, property: &str) -> Vec<u8> {
-        KeyBuilder::new().u8(3).str(label).str(property).finish()
+        Self::key(Self::UNIQUE_EDGE_PROPERTY, label, property)
     }
 
     pub(crate) fn node_prefix() -> Vec<u8> {
-        KeyBuilder::new().u8(0).finish()
+        Self::prefix(Self::NODE_PROPERTY)
     }
 
     pub(crate) fn edge_prefix() -> Vec<u8> {
-        KeyBuilder::new().u8(1).finish()
+        Self::prefix(Self::EDGE_PROPERTY)
     }
 
     pub(crate) fn unique_node_prefix() -> Vec<u8> {
-        KeyBuilder::new().u8(2).finish()
+        Self::prefix(Self::UNIQUE_NODE_PROPERTY)
     }
 
     pub(crate) fn unique_edge_prefix() -> Vec<u8> {
-        KeyBuilder::new().u8(3).finish()
+        Self::prefix(Self::UNIQUE_EDGE_PROPERTY)
     }
 
     pub(crate) fn decode_label_property(key: &[u8]) -> Option<(String, String)> {
@@ -146,6 +151,14 @@ impl PropertyIndexMetadata {
         let property = std::str::from_utf8(reader.str()?).ok()?.to_string();
         reader.finish()?;
         Some((label, property))
+    }
+
+    fn key(kind: u8, label: &str, property: &str) -> Vec<u8> {
+        KeyBuilder::new().u8(kind).str(label).str(property).finish()
+    }
+
+    fn prefix(kind: u8) -> Vec<u8> {
+        KeyBuilder::new().u8(kind).finish()
     }
 }
 
@@ -208,6 +221,13 @@ fn ensure_unique_value(
         )));
     }
     Ok(())
+}
+
+fn index_entry_prefix(key: Option<Vec<u8>>, id_size: usize) -> Option<Vec<u8>> {
+    key.map(|mut key| {
+        key.truncate(key.len() - id_size);
+        key
+    })
 }
 
 pub(crate) struct NodePropertyIndexes;
@@ -361,11 +381,10 @@ impl NodePropertyIndexes {
         let registry = PropertyIndexRegistry::load_unique_nodes_from_txn(txn)?;
         for (property, value) in properties {
             if registry.contains(label, property)
-                && let Some(prefix) =
-                    NodePropertyIndex::key(label, property, value, 0).map(|mut key| {
-                        key.truncate(key.len() - std::mem::size_of::<NodeId>());
-                        key
-                    })
+                && let Some(prefix) = index_entry_prefix(
+                    NodePropertyIndex::key(label, property, value, 0),
+                    std::mem::size_of::<NodeId>(),
+                )
             {
                 ensure_unique_value(txn, prefix, "node", label, property)?;
             }
@@ -382,11 +401,10 @@ impl NodePropertyIndexes {
         let registry = PropertyIndexRegistry::load_unique_nodes_from_txn(txn)?;
         for (property, value) in properties {
             if registry.contains(label, property)
-                && let Some(prefix) =
-                    NodePropertyIndex::key(label, property, value, 0).map(|mut key| {
-                        key.truncate(key.len() - std::mem::size_of::<NodeId>());
-                        key
-                    })
+                && let Some(prefix) = index_entry_prefix(
+                    NodePropertyIndex::key(label, property, value, 0),
+                    std::mem::size_of::<NodeId>(),
+                )
             {
                 for entry in txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
                     let entry = entry?;
@@ -653,11 +671,10 @@ impl EdgePropertyIndexes {
         let registry = PropertyIndexRegistry::load_unique_edges_from_txn(txn)?;
         for (property, value) in properties {
             if registry.contains(label, property)
-                && let Some(prefix) =
-                    EdgePropertyIndex::key(label, property, value, 0).map(|mut key| {
-                        key.truncate(key.len() - std::mem::size_of::<EdgeId>());
-                        key
-                    })
+                && let Some(prefix) = index_entry_prefix(
+                    EdgePropertyIndex::key(label, property, value, 0),
+                    std::mem::size_of::<EdgeId>(),
+                )
             {
                 ensure_unique_value(txn, prefix, "edge", label, property)?;
             }
@@ -674,11 +691,10 @@ impl EdgePropertyIndexes {
         let registry = PropertyIndexRegistry::load_unique_edges_from_txn(txn)?;
         for (property, value) in properties {
             if registry.contains(label, property)
-                && let Some(prefix) =
-                    EdgePropertyIndex::key(label, property, value, 0).map(|mut key| {
-                        key.truncate(key.len() - std::mem::size_of::<EdgeId>());
-                        key
-                    })
+                && let Some(prefix) = index_entry_prefix(
+                    EdgePropertyIndex::key(label, property, value, 0),
+                    std::mem::size_of::<EdgeId>(),
+                )
             {
                 for entry in txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
                     let entry = entry?;
