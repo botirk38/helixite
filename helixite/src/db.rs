@@ -6,6 +6,7 @@ use crate::error::Result;
 use crate::id::{EdgeId, NodeId};
 use crate::node::Node;
 use crate::query::{EdgeQuery, NodeQuery, NodeRefQuery};
+use crate::stats::GraphStats;
 use crate::storage::StorageEngine;
 use crate::storage::lmdb::LmdbStorage;
 use crate::value::Value;
@@ -157,6 +158,10 @@ impl<S: StorageEngine> Helixite<S> {
 
     pub fn edges(&self) -> EdgeQuery<'_, S> {
         EdgeQuery::new(&self.storage)
+    }
+
+    pub fn stats(&self) -> Result<GraphStats> {
+        GraphStats::load(&self.storage)
     }
 
     pub fn node(&self, id: NodeId) -> NodeRefQuery<'_, S> {
