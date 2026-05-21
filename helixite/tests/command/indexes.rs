@@ -56,6 +56,98 @@ fn test_create_duplicate_node_property_index_fails() {
 }
 
 #[test]
+fn test_create_unique_node_property_index() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node(
+        "User",
+        [(
+            "email".to_string(),
+            helixite::Value::String("a@example.com".into()),
+        )],
+    )
+    .unwrap();
+    db.add_node(
+        "User",
+        [(
+            "email".to_string(),
+            helixite::Value::String("b@example.com".into()),
+        )],
+    )
+    .unwrap();
+
+    db.indexes().nodes().create_unique("User", "email").unwrap();
+
+    let result = db.add_node(
+        "User",
+        [(
+            "email".to_string(),
+            helixite::Value::String("a@example.com".into()),
+        )],
+    );
+    assert!(matches!(result, Err(HelixiteError::DuplicateKey(_))));
+}
+
+#[test]
+fn test_create_unique_node_property_index_fails_with_existing_duplicate() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node(
+        "User",
+        [(
+            "email".to_string(),
+            helixite::Value::String("a@example.com".into()),
+        )],
+    )
+    .unwrap();
+    db.add_node(
+        "User",
+        [(
+            "email".to_string(),
+            helixite::Value::String("a@example.com".into()),
+        )],
+    )
+    .unwrap();
+
+    let result = db.indexes().nodes().create_unique("User", "email");
+    assert!(matches!(result, Err(HelixiteError::DuplicateKey(_))));
+}
+
+#[test]
+fn test_unique_node_property_blocks_update_duplicate() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node(
+        "User",
+        [(
+            "email".to_string(),
+            helixite::Value::String("a@example.com".into()),
+        )],
+    )
+    .unwrap();
+    let b = db
+        .add_node(
+            "User",
+            [(
+                "email".to_string(),
+                helixite::Value::String("b@example.com".into()),
+            )],
+        )
+        .unwrap();
+
+    db.indexes().nodes().create_unique("User", "email").unwrap();
+
+    let result = db
+        .update_node(b)
+        .set_property("email", helixite::Value::String("a@example.com".into()))
+        .apply();
+    assert!(matches!(result, Err(HelixiteError::DuplicateKey(_))));
+}
+
+#[test]
 fn test_drop_node_property_index() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::new().open(dir.path()).unwrap();
@@ -124,6 +216,83 @@ fn test_create_duplicate_edge_property_index_fails() {
 
     let result = db.indexes().edges().create_property("knows", "since");
 
+    assert!(matches!(result, Err(HelixiteError::DuplicateKey(_))));
+}
+
+#[test]
+fn test_create_unique_edge_property_index() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let from = db.add_node("User", Vec::new()).unwrap();
+    let to = db.add_node("User", Vec::new()).unwrap();
+
+    db.add_edge(
+        from,
+        to,
+        "knows",
+        [(
+            "external_id".to_string(),
+            helixite::Value::String("edge-a".into()),
+        )],
+    )
+    .unwrap();
+    db.indexes()
+        .edges()
+        .create_unique("knows", "external_id")
+        .unwrap();
+
+    let result = db.add_edge(
+        from,
+        to,
+        "knows",
+        [(
+            "external_id".to_string(),
+            helixite::Value::String("edge-a".into()),
+        )],
+    );
+    assert!(matches!(result, Err(HelixiteError::DuplicateKey(_))));
+}
+
+#[test]
+fn test_unique_edge_property_blocks_update_duplicate() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let from = db.add_node("User", Vec::new()).unwrap();
+    let to = db.add_node("User", Vec::new()).unwrap();
+
+    db.add_edge(
+        from,
+        to,
+        "knows",
+        [(
+            "external_id".to_string(),
+            helixite::Value::String("edge-a".into()),
+        )],
+    )
+    .unwrap();
+    let edge_b = db
+        .add_edge(
+            from,
+            to,
+            "knows",
+            [(
+                "external_id".to_string(),
+                helixite::Value::String("edge-b".into()),
+            )],
+        )
+        .unwrap();
+
+    db.indexes()
+        .edges()
+        .create_unique("knows", "external_id")
+        .unwrap();
+
+    let result = db
+        .update_edge(edge_b)
+        .set_property("external_id", helixite::Value::String("edge-a".into()))
+        .apply();
     assert!(matches!(result, Err(HelixiteError::DuplicateKey(_))));
 }
 
