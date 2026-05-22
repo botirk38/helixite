@@ -5,9 +5,9 @@ use crate::error::{HelixiteError, Result};
 use crate::id::EdgeId;
 use crate::index::labels::EdgeLabelIndex;
 use crate::index::properties::EdgePropertyIndex;
-use crate::index::properties::PropertyIndexMetadata;
+use crate::index::properties::PropertyIndexRegistry;
+use crate::query::filter::PropertyFilter;
 use crate::query::pagination::{Cursor, Page};
-use crate::query::traversal::EdgePropertyFilter;
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
@@ -16,7 +16,7 @@ use crate::value::Value;
 pub struct EdgeQuery<'a, S: StorageEngine> {
     storage: &'a S,
     label: Option<String>,
-    filters: Vec<EdgePropertyFilter>,
+    filters: Vec<PropertyFilter>,
     limit: Option<usize>,
     after: Option<String>,
 }
@@ -39,7 +39,49 @@ impl<'a, S: StorageEngine> EdgeQuery<'a, S> {
 
     pub fn eq(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Eq(property.into(), value));
+            .push(PropertyFilter::Eq(property.into(), value));
+        self
+    }
+
+    pub fn ne(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Ne(property.into(), value));
+        self
+    }
+
+    pub fn gt(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Gt(property.into(), value));
+        self
+    }
+
+    pub fn gte(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Gte(property.into(), value));
+        self
+    }
+
+    pub fn lt(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Lt(property.into(), value));
+        self
+    }
+
+    pub fn lte(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Lte(property.into(), value));
+        self
+    }
+
+    pub fn r#in(
+        mut self,
+        property: impl Into<String>,
+        values: impl IntoIterator<Item = Value>,
+    ) -> Self {
+        self.filters.push(PropertyFilter::In(
+            property.into(),
+            values.into_iter().collect(),
+        ));
         self
     }
 
@@ -140,7 +182,7 @@ impl<'a, S: StorageEngine> EdgeQuery<'a, S> {
 struct EdgeQueryExec<'a> {
     txn: &'a dyn ReadTxn,
     label: Option<String>,
-    filters: Vec<EdgePropertyFilter>,
+    filters: Vec<PropertyFilter>,
     limit: Option<usize>,
     after: Option<String>,
 }
@@ -174,30 +216,33 @@ impl EdgeQueryExec<'_> {
             HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
         })?;
 
+        let registry = PropertyIndexRegistry::load_edges_for_label(self.txn, label)?;
         let mut sets: Vec<BTreeSet<EdgeId>> = Vec::with_capacity(self.filters.len() + 1);
-
         let label_ids: BTreeSet<EdgeId> = self.scan_label_ids(label)?.into_iter().collect();
         sets.push(label_ids);
 
         for filter in &self.filters {
-            let EdgePropertyFilter::Eq(property, value) = filter;
+            let property = filter.property();
 
-            if !self.is_property_indexed(label, property)? {
+            if !registry.contains(label, property) {
                 return Err(HelixiteError::IndexNotFound(format!(
                     "no edge property index for {label}::{property}"
                 )));
             }
 
-            let Some(prefix) = EdgePropertyIndex::lookup_prefix(label, property, value) else {
-                return Ok(BTreeSet::new());
-            };
-
             let mut set = BTreeSet::new();
-            for entry in self.txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
+            for entry in self.txn.iter(
+                Db::Properties,
+                Scan::Prefix(&EdgePropertyIndex::index_prefix(label, property)),
+            )? {
                 let entry = entry?;
                 let edge_id = EdgePropertyIndex::decode_edge_id(entry.key)
                     .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
-                set.insert(edge_id);
+                let indexed_value = EdgePropertyIndex::decode_value(entry.key)
+                    .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
+                if filter.matches_indexed(&indexed_value) {
+                    set.insert(edge_id);
+                }
             }
             sets.push(set);
         }
@@ -207,14 +252,6 @@ impl EdgeQueryExec<'_> {
             result = result.intersection(set).copied().collect();
         }
         Ok(result)
-    }
-
-    fn is_property_indexed(&self, label: &str, property: &str) -> Result<bool> {
-        let key = PropertyIndexMetadata::edge_key(label, property);
-        match self.txn.get(Db::Metadata, &key)? {
-            Some(_) => Ok(true),
-            None => Ok(false),
-        }
     }
 
     fn scan_label_ids(&self, label: &str) -> Result<Vec<EdgeId>> {

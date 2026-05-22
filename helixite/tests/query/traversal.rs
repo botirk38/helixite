@@ -225,6 +225,100 @@ fn test_traversal_where_eq_indexed() {
 }
 
 #[test]
+fn test_traversal_where_comparison_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", [("weight".to_string(), Value::Float(1.0))])
+        .unwrap();
+    db.add_edge(a, c, "knows", [("weight".to_string(), Value::Float(2.0))])
+        .unwrap();
+
+    db.indexes()
+        .edges()
+        .create_property("knows", "weight")
+        .unwrap();
+
+    let nodes = db
+        .node(a)
+        .outgoing("knows")
+        .gt("weight", Value::Float(1.0))
+        .nodes()
+        .unwrap();
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].id, c);
+
+    let edges = db
+        .node(a)
+        .outgoing("knows")
+        .lte("weight", Value::Float(1.0))
+        .edges()
+        .unwrap();
+    assert_eq!(edges.len(), 1);
+}
+
+#[test]
+fn test_traversal_where_ne_and_in_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+    let d = db.add_node("D", Vec::new()).unwrap();
+
+    db.add_edge(
+        a,
+        b,
+        "knows",
+        [("kind".to_string(), Value::String("work".into()))],
+    )
+    .unwrap();
+    db.add_edge(
+        a,
+        c,
+        "knows",
+        [("kind".to_string(), Value::String("home".into()))],
+    )
+    .unwrap();
+    db.add_edge(
+        a,
+        d,
+        "knows",
+        [("kind".to_string(), Value::String("gym".into()))],
+    )
+    .unwrap();
+
+    db.indexes()
+        .edges()
+        .create_property("knows", "kind")
+        .unwrap();
+
+    let not_work = db
+        .node(a)
+        .outgoing("knows")
+        .ne("kind", Value::String("work".into()))
+        .count()
+        .unwrap();
+    assert_eq!(not_work, 2);
+
+    let selected = db
+        .node(a)
+        .outgoing("knows")
+        .r#in(
+            "kind",
+            [Value::String("work".into()), Value::String("gym".into())],
+        )
+        .nodes()
+        .unwrap();
+    assert_eq!(selected.len(), 2);
+}
+
+#[test]
 fn test_traversal_where_eq_not_indexed() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::new().open(dir.path()).unwrap();

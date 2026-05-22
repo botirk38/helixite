@@ -14,6 +14,7 @@ use crate::index::edges::EdgeIndex;
 use crate::index::labels::EdgeLabelIndex;
 use crate::index::nodes::NodeIndexes;
 use crate::index::properties::EdgePropertyIndexes;
+use crate::index::properties::NodePropertyIndexes;
 use crate::index::properties::PropertyIndexRegistry;
 
 pub struct WriteTxn<'a> {
@@ -70,6 +71,7 @@ impl<'a> WriteTxn<'a> {
         let properties: BTreeMap<String, Value> = properties.into_iter().collect();
 
         NodeIndexes::validate_from_txn(self.txn, &label, &properties)?;
+        NodePropertyIndexes::validate_unique_from_txn(self.txn, &label, &properties)?;
 
         let registered = PropertyIndexRegistry::load_nodes_from_txn(self.txn)?;
 
@@ -150,6 +152,7 @@ impl<'a> WriteTxn<'a> {
         let properties: BTreeMap<String, Value> = properties.into_iter().collect();
 
         let registered = PropertyIndexRegistry::load_edges_from_txn(self.txn)?;
+        EdgePropertyIndexes::validate_unique_from_txn(self.txn, &label, &properties)?;
 
         let next_id = next_edge_id(self.txn)?;
 
@@ -291,6 +294,12 @@ impl<'a> NodeMut<'a> {
         apply_ops(&mut label, &mut properties, &self.ops);
 
         NodeIndexes::validate_from_txn(self.txn, &label, &properties)?;
+        NodePropertyIndexes::validate_unique_replace_from_txn(
+            self.txn,
+            self.id,
+            &label,
+            &properties,
+        )?;
 
         let registered = PropertyIndexRegistry::load_nodes_from_txn(self.txn)?;
 
@@ -378,6 +387,13 @@ impl<'a> EdgeMut<'a> {
         if self.txn.get(Db::Nodes, &to.to_be_bytes())?.is_none() {
             return Err(HelixiteError::NodeNotFound(to));
         }
+
+        EdgePropertyIndexes::validate_unique_replace_from_txn(
+            self.txn,
+            self.id,
+            &label,
+            &properties,
+        )?;
 
         let registered = PropertyIndexRegistry::load_edges_from_txn(self.txn)?;
 

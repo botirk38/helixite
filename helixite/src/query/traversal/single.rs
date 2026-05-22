@@ -4,19 +4,15 @@ use crate::edge::{Direction, Edge};
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::index::edges::EdgeIndex;
-use crate::index::properties::{EdgePropertyIndex, PropertyIndexMetadata};
+use crate::index::properties::{EdgePropertyIndex, PropertyIndexRegistry};
 use crate::node::Node;
+use crate::query::filter::PropertyFilter;
 use crate::query::pagination::{Cursor, Page};
 use crate::query::traversal::MultiHopTraversalQuery;
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::engine::{Db, Scan};
 use crate::value::Value;
-
-#[derive(Debug, Clone)]
-pub(crate) enum EdgePropertyFilter {
-    Eq(String, Value),
-}
 
 pub struct NodeRefQuery<'a, S: StorageEngine> {
     storage: &'a S,
@@ -28,7 +24,7 @@ pub struct TraversalQuery<'a, S: StorageEngine> {
     pub(super) node_id: NodeId,
     pub(super) direction: Direction,
     pub(super) label: Option<String>,
-    filters: Vec<EdgePropertyFilter>,
+    filters: Vec<PropertyFilter>,
     pub(super) limit: Option<usize>,
     after: Option<String>,
 }
@@ -106,7 +102,49 @@ impl<'a, S: StorageEngine> NodeRefQuery<'a, S> {
 impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
     pub fn eq(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
-            .push(EdgePropertyFilter::Eq(property.into(), value));
+            .push(PropertyFilter::Eq(property.into(), value));
+        self
+    }
+
+    pub fn ne(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Ne(property.into(), value));
+        self
+    }
+
+    pub fn gt(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Gt(property.into(), value));
+        self
+    }
+
+    pub fn gte(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Gte(property.into(), value));
+        self
+    }
+
+    pub fn lt(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Lt(property.into(), value));
+        self
+    }
+
+    pub fn lte(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Lte(property.into(), value));
+        self
+    }
+
+    pub fn r#in(
+        mut self,
+        property: impl Into<String>,
+        values: impl IntoIterator<Item = Value>,
+    ) -> Self {
+        self.filters.push(PropertyFilter::In(
+            property.into(),
+            values.into_iter().collect(),
+        ));
         self
     }
 
@@ -262,7 +300,7 @@ struct TraversalExec<'a> {
     node_id: NodeId,
     direction: Direction,
     label: Option<String>,
-    filters: Vec<EdgePropertyFilter>,
+    filters: Vec<PropertyFilter>,
     limit: Option<usize>,
     after: Option<String>,
 }
@@ -335,14 +373,7 @@ impl TraversalExec<'_> {
             HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
         })?;
 
-        for filter in &self.filters {
-            let EdgePropertyFilter::Eq(property, _value) = filter;
-            if !self.is_edge_property_indexed(edge_label, property)? {
-                return Err(HelixiteError::IndexNotFound(format!(
-                    "no edge property index for {edge_label}::{property}"
-                )));
-            }
-        }
+        self.ensure_property_indexes(edge_label)?;
 
         let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
         let adjacency_ids = self.scan_adjacency_ids()?;
@@ -368,14 +399,7 @@ impl TraversalExec<'_> {
             HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
         })?;
 
-        for filter in &self.filters {
-            let EdgePropertyFilter::Eq(property, _value) = filter;
-            if !self.is_edge_property_indexed(edge_label, property)? {
-                return Err(HelixiteError::IndexNotFound(format!(
-                    "no edge property index for {edge_label}::{property}"
-                )));
-            }
-        }
+        self.ensure_property_indexes(edge_label)?;
 
         let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
         let adjacency_ids = self.scan_adjacency_ids()?;
@@ -403,14 +427,7 @@ impl TraversalExec<'_> {
             HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
         })?;
 
-        for filter in &self.filters {
-            let EdgePropertyFilter::Eq(property, _value) = filter;
-            if !self.is_edge_property_indexed(edge_label, property)? {
-                return Err(HelixiteError::IndexNotFound(format!(
-                    "no edge property index for {edge_label}::{property}"
-                )));
-            }
-        }
+        self.ensure_property_indexes(edge_label)?;
 
         let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
         let adjacency_ids = self.scan_adjacency_ids()?;
@@ -425,15 +442,18 @@ impl TraversalExec<'_> {
         let mut sets: Vec<BTreeSet<EdgeId>> = Vec::with_capacity(self.filters.len());
 
         for filter in &self.filters {
-            let EdgePropertyFilter::Eq(property, value) = filter;
-            let Some(prefix) = EdgePropertyIndex::lookup_prefix(label, property, value) else {
-                return Ok(BTreeSet::new());
-            };
-
             let mut set = BTreeSet::new();
-            for entry in self.txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
+            for entry in self.txn.iter(
+                Db::Properties,
+                Scan::Prefix(&EdgePropertyIndex::index_prefix(label, filter.property())),
+            )? {
                 let entry = entry?;
-                if let Some(edge_id) = EdgePropertyIndex::decode_edge_id(entry.key) {
+                let Some(indexed_value) = EdgePropertyIndex::decode_value(entry.key) else {
+                    return Err(HelixiteError::Storage("corrupt property index key".into()));
+                };
+                if filter.matches_indexed(&indexed_value)
+                    && let Some(edge_id) = EdgePropertyIndex::decode_edge_id(entry.key)
+                {
                     set.insert(edge_id);
                 }
             }
@@ -464,12 +484,17 @@ impl TraversalExec<'_> {
         Ok(ids)
     }
 
-    fn is_edge_property_indexed(&self, label: &str, property: &str) -> Result<bool> {
-        let key = PropertyIndexMetadata::edge_key(label, property);
-        match self.txn.get(Db::Metadata, &key)? {
-            Some(_) => Ok(true),
-            None => Ok(false),
+    fn ensure_property_indexes(&self, label: &str) -> Result<()> {
+        let registry = PropertyIndexRegistry::load_edges_for_label(self.txn, label)?;
+        for filter in &self.filters {
+            let property = filter.property();
+            if !registry.contains(label, property) {
+                return Err(HelixiteError::IndexNotFound(format!(
+                    "no edge property index for {label}::{property}"
+                )));
+            }
         }
+        Ok(())
     }
 
     fn load_edge(&self, edge_id: EdgeId) -> Result<Edge> {
@@ -513,14 +538,7 @@ impl TraversalExec<'_> {
                 HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
             })?;
 
-            for filter in &self.filters {
-                let EdgePropertyFilter::Eq(property, _value) = filter;
-                if !self.is_edge_property_indexed(edge_label, property)? {
-                    return Err(HelixiteError::IndexNotFound(format!(
-                        "no edge property index for {edge_label}::{property}"
-                    )));
-                }
-            }
+            self.ensure_property_indexes(edge_label)?;
 
             let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
             let adjacency_ids = self.scan_adjacency_ids()?;

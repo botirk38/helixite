@@ -66,6 +66,10 @@ impl<'a, S: StorageEngine> NodeIndexManager<'a, S> {
         NodePropertyIndexes::create(self.storage, label, property)
     }
 
+    pub fn create_unique(&self, label: &str, property: &str) -> Result<()> {
+        NodePropertyIndexes::create_unique(self.storage, label, property)
+    }
+
     pub fn drop_property(&self, label: &str, property: &str) -> Result<()> {
         NodePropertyIndexes::drop(self.storage, label, property)
     }
@@ -74,6 +78,10 @@ impl<'a, S: StorageEngine> NodeIndexManager<'a, S> {
 impl<'a, S: StorageEngine> EdgeIndexManager<'a, S> {
     pub fn create_property(&self, label: &str, property: &str) -> Result<()> {
         EdgePropertyIndexes::create(self.storage, label, property)
+    }
+
+    pub fn create_unique(&self, label: &str, property: &str) -> Result<()> {
+        EdgePropertyIndexes::create_unique(self.storage, label, property)
     }
 
     pub fn drop_property(&self, label: &str, property: &str) -> Result<()> {
