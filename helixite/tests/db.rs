@@ -1,4 +1,4 @@
-use helixite::{Config, HelixiteBuilder, storage::MemoryStorage, value::Value};
+use helixite::{Config, HelixiteBuilder, HelixiteError, storage::MemoryStorage, value::Value};
 use tempfile::tempdir;
 
 #[test]
@@ -109,4 +109,83 @@ fn test_graph_stats_counts_labels_and_indexes() {
         stats.indexes.edge_properties.get("knows").unwrap(),
         &vec!["since".to_string()]
     );
+}
+
+#[test]
+fn test_stats_empty_database() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let stats = db.stats().unwrap();
+    assert_eq!(stats.node_count, 0);
+    assert_eq!(stats.edge_count, 0);
+    assert!(stats.labels.is_empty());
+    assert!(stats.indexes.node_properties.is_empty());
+    assert!(stats.indexes.edge_properties.is_empty());
+}
+
+#[test]
+fn test_stats_after_deletions() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    db.delete_node(a).unwrap();
+
+    let stats = db.stats().unwrap();
+    assert_eq!(stats.node_count, 1);
+    assert_eq!(stats.edge_count, 0);
+}
+
+#[test]
+fn test_config_defaults() {
+    let config = Config::default();
+    assert_eq!(config.map_size, 1024 * 1024 * 1024);
+    assert_eq!(config.max_dbs, 32);
+    assert_eq!(config.max_readers, 126);
+}
+
+#[test]
+fn test_config_with_map_size_chained() {
+    let config = Config::default().with_map_size(128 * 1024 * 1024);
+    assert_eq!(config.map_size, 128 * 1024 * 1024);
+    assert_eq!(config.max_dbs, 32);
+}
+
+#[test]
+fn test_close_then_reopen_with_data() {
+    let dir = tempdir().unwrap();
+    let path = dir.path();
+
+    let db = HelixiteBuilder::new().open(path).unwrap();
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.close().unwrap();
+
+    let db = HelixiteBuilder::new().open(path).unwrap();
+    let stats = db.stats().unwrap();
+    assert_eq!(stats.node_count, 2);
+    assert_eq!(stats.edge_count, 1);
+}
+
+#[test]
+fn test_get_node_not_found() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let result = db.get_node(999);
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
+}
+
+#[test]
+fn test_get_edge_not_found() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let result = db.get_edge(999);
+    assert!(matches!(result, Err(HelixiteError::EdgeNotFound(999))));
 }

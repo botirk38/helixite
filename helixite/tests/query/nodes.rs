@@ -742,3 +742,65 @@ fn test_node_ids_rejects_after() {
     let err = db.nodes().label("User").after("n:1").ids().unwrap_err();
     assert!(err.to_string().contains("after() requires page()"));
 }
+
+#[test]
+fn test_nodes_collect_all_no_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("User", Vec::new()).unwrap();
+    db.add_node("Org", Vec::new()).unwrap();
+    db.add_node("User", Vec::new()).unwrap();
+
+    let all = db.nodes().collect().unwrap();
+    assert_eq!(all.len(), 3);
+}
+
+#[test]
+fn test_nodes_ids_all_no_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id1 = db.add_node("User", Vec::new()).unwrap();
+    let id2 = db.add_node("Org", Vec::new()).unwrap();
+
+    let ids = db.nodes().ids().unwrap();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&id1));
+    assert!(ids.contains(&id2));
+}
+
+#[test]
+fn test_nodes_count_all_no_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("A", Vec::new()).unwrap();
+    db.add_node("B", Vec::new()).unwrap();
+    db.add_node("C", Vec::new()).unwrap();
+
+    assert_eq!(db.nodes().count().unwrap(), 3);
+}
+
+#[test]
+fn test_nodes_collect_empty() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let all = db.nodes().collect().unwrap();
+    assert!(all.is_empty());
+}
+
+#[test]
+fn test_nodes_count_after_delete() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id1 = db.add_node("User", Vec::new()).unwrap();
+    db.add_node("User", Vec::new()).unwrap();
+
+    db.delete_node(id1).unwrap();
+
+    assert_eq!(db.nodes().label("User").count().unwrap(), 1);
+    assert_eq!(db.nodes().count().unwrap(), 1);
+}
