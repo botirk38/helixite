@@ -847,3 +847,61 @@ fn test_traversal_nodes_rejects_after() {
         .unwrap_err();
     assert!(err.to_string().contains("after() requires page()"));
 }
+
+#[test]
+fn test_traversal_from_deleted_node() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    db.delete_node(a).unwrap();
+
+    let edges = db.node(a).outgoing("knows").edges().unwrap();
+    assert!(edges.is_empty());
+
+    let nodes = db.node(a).outgoing("knows").nodes().unwrap();
+    assert!(nodes.is_empty());
+
+    let count = db.node(a).outgoing("knows").count().unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn test_traversal_with_self_loop() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    db.add_edge(a, a, "self_ref", Vec::new()).unwrap();
+
+    let out_edges = db.node(a).outgoing("self_ref").edges().unwrap();
+    assert_eq!(out_edges.len(), 1);
+    assert_eq!(out_edges[0].from, a);
+    assert_eq!(out_edges[0].to, a);
+
+    let in_nodes = db.node(a).incoming("self_ref").nodes().unwrap();
+    assert_eq!(in_nodes.len(), 1);
+    assert_eq!(in_nodes[0].id, a);
+
+    let out_count = db.node(a).outgoing("self_ref").count().unwrap();
+    assert_eq!(out_count, 1);
+}
+
+#[test]
+fn test_traversal_no_edges_for_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let edges = db.node(a).outgoing("follows").edges().unwrap();
+    assert!(edges.is_empty());
+
+    let count = db.node(a).outgoing("follows").count().unwrap();
+    assert_eq!(count, 0);
+}

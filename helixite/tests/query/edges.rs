@@ -416,3 +416,58 @@ fn test_edges_page_without_label() {
     assert_eq!(second.items[0].id, edge2);
     assert!(second.next_cursor.is_none());
 }
+
+#[test]
+fn test_edges_count_all_no_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, b, "follows", Vec::new()).unwrap();
+
+    assert_eq!(db.edges().count().unwrap(), 2);
+}
+
+#[test]
+fn test_edges_collect_all_no_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, b, "follows", Vec::new()).unwrap();
+
+    let all = db.edges().collect().unwrap();
+    assert_eq!(all.len(), 2);
+}
+
+#[test]
+fn test_edges_collect_empty() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let all = db.edges().collect().unwrap();
+    assert!(all.is_empty());
+}
+
+#[test]
+fn test_edges_count_after_delete() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+
+    let e1 = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, b, "follows", Vec::new()).unwrap();
+
+    db.delete_edge(e1).unwrap();
+
+    assert_eq!(db.edges().count().unwrap(), 1);
+    assert_eq!(db.edges().label("knows").count().unwrap(), 0);
+}
