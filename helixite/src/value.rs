@@ -36,6 +36,8 @@ impl Ord for IndexedValue {
 }
 
 impl IndexedValue {
+    const SIGN_BIT: u64 = 1 << 63;
+
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
         match self {
             IndexedValue::String(s) => {
@@ -47,7 +49,8 @@ impl IndexedValue {
             IndexedValue::Int(n) => {
                 let mut key = Vec::with_capacity(9);
                 key.push(1);
-                key.extend(n.to_be_bytes());
+                let ordered = (*n as u64) ^ Self::SIGN_BIT;
+                key.extend(ordered.to_be_bytes());
                 key
             }
             IndexedValue::Float(f) => {
@@ -79,7 +82,9 @@ impl IndexedValue {
             0 => String::from_utf8(value.to_vec()).ok().map(Self::String),
             1 => {
                 let bytes: [u8; 8] = value.try_into().ok()?;
-                Some(Self::Int(i64::from_be_bytes(bytes)))
+                let ordered = u64::from_be_bytes(bytes);
+                let raw = ordered ^ Self::SIGN_BIT;
+                Some(Self::Int(i64::from_be_bytes(raw.to_be_bytes())))
             }
             2 => match value {
                 [0] => Some(Self::Bool(false)),
@@ -97,6 +102,17 @@ impl IndexedValue {
                 };
                 Some(Self::Float(f64::from_bits(bits)))
             }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn compare_same_type(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (Self::String(left), Self::String(right)) => Some(left.cmp(right)),
+            (Self::Int(left), Self::Int(right)) => Some(left.cmp(right)),
+            (Self::Float(left), Self::Float(right)) => Some(left.total_cmp(right)),
+            (Self::Bool(left), Self::Bool(right)) => Some(left.cmp(right)),
+            (Self::Bytes(left), Self::Bytes(right)) => Some(left.cmp(right)),
             _ => None,
         }
     }

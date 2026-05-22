@@ -5,7 +5,7 @@ use crate::error::{HelixiteError, Result};
 use crate::id::EdgeId;
 use crate::index::labels::EdgeLabelIndex;
 use crate::index::properties::EdgePropertyIndex;
-use crate::index::properties::PropertyIndexMetadata;
+use crate::index::properties::PropertyIndexRegistry;
 use crate::query::filter::PropertyFilter;
 use crate::query::pagination::{Cursor, Page};
 use crate::storage::ReadTxn;
@@ -216,15 +216,15 @@ impl EdgeQueryExec<'_> {
             HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
         })?;
 
+        let registry = PropertyIndexRegistry::load_edges_for_label(self.txn, label)?;
         let mut sets: Vec<BTreeSet<EdgeId>> = Vec::with_capacity(self.filters.len() + 1);
-
         let label_ids: BTreeSet<EdgeId> = self.scan_label_ids(label)?.into_iter().collect();
         sets.push(label_ids);
 
         for filter in &self.filters {
             let property = filter.property();
 
-            if !self.is_property_indexed(label, property)? {
+            if !registry.contains(label, property) {
                 return Err(HelixiteError::IndexNotFound(format!(
                     "no edge property index for {label}::{property}"
                 )));
@@ -252,14 +252,6 @@ impl EdgeQueryExec<'_> {
             result = result.intersection(set).copied().collect();
         }
         Ok(result)
-    }
-
-    fn is_property_indexed(&self, label: &str, property: &str) -> Result<bool> {
-        let key = PropertyIndexMetadata::edge_key(label, property);
-        match self.txn.get(Db::Metadata, &key)? {
-            Some(_) => Ok(true),
-            None => Ok(false),
-        }
     }
 
     fn scan_label_ids(&self, label: &str) -> Result<Vec<EdgeId>> {

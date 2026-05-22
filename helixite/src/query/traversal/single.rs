@@ -4,7 +4,7 @@ use crate::edge::{Direction, Edge};
 use crate::error::{HelixiteError, Result};
 use crate::id::{EdgeId, NodeId};
 use crate::index::edges::EdgeIndex;
-use crate::index::properties::{EdgePropertyIndex, PropertyIndexMetadata};
+use crate::index::properties::{EdgePropertyIndex, PropertyIndexRegistry};
 use crate::node::Node;
 use crate::query::filter::PropertyFilter;
 use crate::query::pagination::{Cursor, Page};
@@ -373,14 +373,7 @@ impl TraversalExec<'_> {
             HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
         })?;
 
-        for filter in &self.filters {
-            let property = filter.property();
-            if !self.is_edge_property_indexed(edge_label, property)? {
-                return Err(HelixiteError::IndexNotFound(format!(
-                    "no edge property index for {edge_label}::{property}"
-                )));
-            }
-        }
+        self.ensure_property_indexes(edge_label)?;
 
         let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
         let adjacency_ids = self.scan_adjacency_ids()?;
@@ -406,14 +399,7 @@ impl TraversalExec<'_> {
             HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
         })?;
 
-        for filter in &self.filters {
-            let property = filter.property();
-            if !self.is_edge_property_indexed(edge_label, property)? {
-                return Err(HelixiteError::IndexNotFound(format!(
-                    "no edge property index for {edge_label}::{property}"
-                )));
-            }
-        }
+        self.ensure_property_indexes(edge_label)?;
 
         let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
         let adjacency_ids = self.scan_adjacency_ids()?;
@@ -441,14 +427,7 @@ impl TraversalExec<'_> {
             HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
         })?;
 
-        for filter in &self.filters {
-            let property = filter.property();
-            if !self.is_edge_property_indexed(edge_label, property)? {
-                return Err(HelixiteError::IndexNotFound(format!(
-                    "no edge property index for {edge_label}::{property}"
-                )));
-            }
-        }
+        self.ensure_property_indexes(edge_label)?;
 
         let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
         let adjacency_ids = self.scan_adjacency_ids()?;
@@ -505,12 +484,17 @@ impl TraversalExec<'_> {
         Ok(ids)
     }
 
-    fn is_edge_property_indexed(&self, label: &str, property: &str) -> Result<bool> {
-        let key = PropertyIndexMetadata::edge_key(label, property);
-        match self.txn.get(Db::Metadata, &key)? {
-            Some(_) => Ok(true),
-            None => Ok(false),
+    fn ensure_property_indexes(&self, label: &str) -> Result<()> {
+        let registry = PropertyIndexRegistry::load_edges_for_label(self.txn, label)?;
+        for filter in &self.filters {
+            let property = filter.property();
+            if !registry.contains(label, property) {
+                return Err(HelixiteError::IndexNotFound(format!(
+                    "no edge property index for {label}::{property}"
+                )));
+            }
         }
+        Ok(())
     }
 
     fn load_edge(&self, edge_id: EdgeId) -> Result<Edge> {
@@ -554,14 +538,7 @@ impl TraversalExec<'_> {
                 HelixiteError::IndexNotFound("edge property filter requires a label".to_string())
             })?;
 
-            for filter in &self.filters {
-                let property = filter.property();
-                if !self.is_edge_property_indexed(edge_label, property)? {
-                    return Err(HelixiteError::IndexNotFound(format!(
-                        "no edge property index for {edge_label}::{property}"
-                    )));
-                }
-            }
+            self.ensure_property_indexes(edge_label)?;
 
             let candidate_ids = self.resolve_filtered_edge_ids(edge_label)?;
             let adjacency_ids = self.scan_adjacency_ids()?;

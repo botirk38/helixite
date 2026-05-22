@@ -200,6 +200,20 @@ impl PropertyIndexRegistry {
         Self::load_from_txn(txn, PropertyIndexMetadata::edge_prefix())
     }
 
+    pub(crate) fn load_nodes_for_label(
+        txn: &dyn ReadTxn,
+        label: &str,
+    ) -> crate::error::Result<Self> {
+        Self::load_nodes_from_txn(txn).map(|registry| registry.for_label(label))
+    }
+
+    pub(crate) fn load_edges_for_label(
+        txn: &dyn ReadTxn,
+        label: &str,
+    ) -> crate::error::Result<Self> {
+        Self::load_edges_from_txn(txn).map(|registry| registry.for_label(label))
+    }
+
     pub(crate) fn load_unique_nodes_from_txn(txn: &dyn ReadTxn) -> crate::error::Result<Self> {
         Self::load_from_txn(txn, PropertyIndexMetadata::unique_node_prefix())
     }
@@ -222,6 +236,15 @@ impl PropertyIndexRegistry {
         }
 
         Ok(Self { indexes })
+    }
+
+    fn for_label(mut self, label: &str) -> Self {
+        let indexes = self
+            .indexes
+            .remove(label)
+            .map(|properties| BTreeMap::from([(label.to_string(), properties)]))
+            .unwrap_or_default();
+        Self { indexes }
     }
 }
 

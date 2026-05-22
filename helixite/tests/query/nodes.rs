@@ -100,6 +100,8 @@ fn test_nodes_by_comparison_filters() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::new().open(dir.path()).unwrap();
 
+    db.add_node("User", [("age".to_string(), Value::Int(-10))])
+        .unwrap();
     db.add_node("User", [("age".to_string(), Value::Int(20))])
         .unwrap();
     db.add_node("User", [("age".to_string(), Value::Int(30))])
@@ -131,7 +133,7 @@ fn test_nodes_by_comparison_filters() {
             .lt("age", Value::Int(40))
             .count()
             .unwrap(),
-        2
+        3
     );
     assert_eq!(
         db.nodes()
@@ -139,7 +141,7 @@ fn test_nodes_by_comparison_filters() {
             .lte("age", Value::Int(30))
             .count()
             .unwrap(),
-        2
+        3
     );
 }
 

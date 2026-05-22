@@ -10,7 +10,7 @@ use crate::value::Value;
 
 use crate::index::labels::NodeLabelIndex;
 use crate::index::properties::NodePropertyIndex;
-use crate::index::properties::PropertyIndexMetadata;
+use crate::index::properties::PropertyIndexRegistry;
 use crate::index::vector::VectorIndex;
 
 pub struct NodeQuery<'a, S: StorageEngine> {
@@ -278,11 +278,12 @@ impl NodeQueryExec<'_> {
             HelixiteError::IndexNotFound("property filter requires a label".to_string())
         })?;
 
+        let registry = PropertyIndexRegistry::load_nodes_for_label(self.txn, label)?;
         let mut id_sets: Vec<Vec<NodeId>> = Vec::with_capacity(self.filters.len());
         for filter in &self.filters {
             let property = filter.property();
 
-            if !self.is_property_indexed(label, property)? {
+            if !registry.contains(label, property) {
                 return Err(HelixiteError::IndexNotFound(format!(
                     "no property index for {label}::{property}"
                 )));
@@ -291,14 +292,6 @@ impl NodeQueryExec<'_> {
             id_sets.push(self.scan_ids_by_property(filter, label)?);
         }
         self.intersect_id_sets(id_sets)
-    }
-
-    fn is_property_indexed(&self, label: &str, property: &str) -> Result<bool> {
-        let key = PropertyIndexMetadata::node_key(label, property);
-        match self.txn.get(Db::Metadata, &key)? {
-            Some(_) => Ok(true),
-            None => Ok(false),
-        }
     }
 
     fn scan_ids_by_property(&self, filter: &PropertyFilter, label: &str) -> Result<Vec<NodeId>> {

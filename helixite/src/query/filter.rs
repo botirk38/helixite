@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use crate::value::{IndexedValue, Value};
 
 #[derive(Debug, Clone)]
@@ -34,16 +36,20 @@ impl PropertyFilter {
             }
             PropertyFilter::Gt(_, value) => value
                 .to_indexed_value()
-                .is_some_and(|filter_value| indexed_value > &filter_value),
+                .and_then(|filter_value| indexed_value.compare_same_type(&filter_value))
+                .is_some_and(Ordering::is_gt),
             PropertyFilter::Gte(_, value) => value
                 .to_indexed_value()
-                .is_some_and(|filter_value| indexed_value >= &filter_value),
+                .and_then(|filter_value| indexed_value.compare_same_type(&filter_value))
+                .is_some_and(Ordering::is_ge),
             PropertyFilter::Lt(_, value) => value
                 .to_indexed_value()
-                .is_some_and(|filter_value| indexed_value < &filter_value),
+                .and_then(|filter_value| indexed_value.compare_same_type(&filter_value))
+                .is_some_and(Ordering::is_lt),
             PropertyFilter::Lte(_, value) => value
                 .to_indexed_value()
-                .is_some_and(|filter_value| indexed_value <= &filter_value),
+                .and_then(|filter_value| indexed_value.compare_same_type(&filter_value))
+                .is_some_and(Ordering::is_le),
             PropertyFilter::In(_, values) => values
                 .iter()
                 .filter_map(Value::to_indexed_value)
