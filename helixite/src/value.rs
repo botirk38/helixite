@@ -178,3 +178,276 @@ impl Value {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── IndexedValue roundtrip: to_bytes → from_bytes ──
+
+    #[test]
+    fn indexed_value_roundtrip_string() {
+        let original = IndexedValue::String("hello".into());
+        let restored = IndexedValue::from_bytes(&original.to_bytes()).unwrap();
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn indexed_value_roundtrip_int() {
+        for n in [0i64, 1, -1, 42, -42, 1000000] {
+            let original = IndexedValue::Int(n);
+            let restored = IndexedValue::from_bytes(&original.to_bytes()).unwrap();
+            assert_eq!(original, restored);
+        }
+    }
+
+    #[test]
+    fn indexed_value_roundtrip_float() {
+        for f in [0.0f64, 1.0, -1.0, 42.5, -42.5, 0.001] {
+            let original = IndexedValue::Float(f);
+            let restored = IndexedValue::from_bytes(&original.to_bytes()).unwrap();
+            assert_eq!(original, restored);
+        }
+    }
+
+    #[test]
+    fn indexed_value_roundtrip_bool() {
+        for b in [true, false] {
+            let original = IndexedValue::Bool(b);
+            let restored = IndexedValue::from_bytes(&original.to_bytes()).unwrap();
+            assert_eq!(original, restored);
+        }
+    }
+
+    #[test]
+    fn indexed_value_roundtrip_bytes() {
+        let original = IndexedValue::Bytes(vec![0, 1, 255]);
+        let restored = IndexedValue::from_bytes(&original.to_bytes()).unwrap();
+        assert_eq!(original, restored);
+    }
+
+    // ── Boundary values ──
+
+    #[test]
+    fn indexed_value_int_min_max_roundtrip() {
+        for n in [i64::MIN, i64::MAX] {
+            let original = IndexedValue::Int(n);
+            let restored = IndexedValue::from_bytes(&original.to_bytes()).unwrap();
+            assert_eq!(original, restored);
+        }
+    }
+
+    #[test]
+    fn indexed_value_float_infinity_roundtrip() {
+        for f in [f64::INFINITY, f64::NEG_INFINITY] {
+            let original = IndexedValue::Float(f);
+            let restored = IndexedValue::from_bytes(&original.to_bytes()).unwrap();
+            assert_eq!(original, restored);
+        }
+    }
+
+    #[test]
+    fn indexed_value_float_negative_zero_canonical() {
+        let neg_zero = IndexedValue::Float(-0.0);
+        let pos_zero = IndexedValue::Float(0.0);
+        assert_eq!(neg_zero.to_bytes(), pos_zero.to_bytes());
+    }
+
+    #[test]
+    fn indexed_value_empty_string_roundtrip() {
+        let original = IndexedValue::String(String::new());
+        let restored = IndexedValue::from_bytes(&original.to_bytes()).unwrap();
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn indexed_value_empty_bytes_roundtrip() {
+        let original = IndexedValue::Bytes(vec![]);
+        let restored = IndexedValue::from_bytes(&original.to_bytes()).unwrap();
+        assert_eq!(original, restored);
+    }
+
+    // ── from_bytes with invalid input ──
+
+    #[test]
+    fn indexed_value_from_empty_bytes_returns_none() {
+        assert!(IndexedValue::from_bytes(&[]).is_none());
+    }
+
+    #[test]
+    fn indexed_value_from_unknown_tag_returns_none() {
+        assert!(IndexedValue::from_bytes(&[255, 0, 0]).is_none());
+    }
+
+    #[test]
+    fn indexed_value_int_from_truncated_bytes_returns_none() {
+        assert!(IndexedValue::from_bytes(&[1, 0, 0]).is_none());
+    }
+
+    #[test]
+    fn indexed_value_bool_from_invalid_payload_returns_none() {
+        assert!(IndexedValue::from_bytes(&[2, 2]).is_none());
+    }
+
+    // ── Ordering correctness via to_bytes ──
+
+    #[test]
+    fn indexed_value_int_ordering_preserves_sign() {
+        let neg = IndexedValue::Int(-100);
+        let zero = IndexedValue::Int(0);
+        let pos = IndexedValue::Int(100);
+        assert!(neg.to_bytes() < zero.to_bytes());
+        assert!(zero.to_bytes() < pos.to_bytes());
+    }
+
+    #[test]
+    fn indexed_value_int_ordering_min_to_max() {
+        let min = IndexedValue::Int(i64::MIN);
+        let neg = IndexedValue::Int(-1);
+        let zero = IndexedValue::Int(0);
+        let pos = IndexedValue::Int(1);
+        let max = IndexedValue::Int(i64::MAX);
+
+        let mut bytes: Vec<Vec<u8>> = [min, neg, zero, pos, max]
+            .iter()
+            .map(IndexedValue::to_bytes)
+            .collect();
+        let sorted = bytes.clone();
+        bytes.sort();
+        assert_eq!(bytes, sorted);
+    }
+
+    #[test]
+    fn indexed_value_float_ordering() {
+        let neg = IndexedValue::Float(-1.0);
+        let zero = IndexedValue::Float(0.0);
+        let pos = IndexedValue::Float(1.0);
+        assert!(neg.to_bytes() < zero.to_bytes());
+        assert!(zero.to_bytes() < pos.to_bytes());
+    }
+
+    #[test]
+    fn indexed_value_float_ordering_full_range() {
+        let values = vec![
+            IndexedValue::Float(f64::NEG_INFINITY),
+            IndexedValue::Float(-1e308),
+            IndexedValue::Float(-1.0),
+            IndexedValue::Float(-f64::MIN_POSITIVE),
+            IndexedValue::Float(0.0),
+            IndexedValue::Float(f64::MIN_POSITIVE),
+            IndexedValue::Float(1.0),
+            IndexedValue::Float(1e308),
+            IndexedValue::Float(f64::INFINITY),
+        ];
+
+        let mut bytes: Vec<Vec<u8>> = values.iter().map(IndexedValue::to_bytes).collect();
+        let sorted = bytes.clone();
+        bytes.sort();
+        assert_eq!(bytes, sorted);
+    }
+
+    #[test]
+    fn indexed_value_string_ordering() {
+        let a = IndexedValue::String("apple".into());
+        let b = IndexedValue::String("banana".into());
+        assert!(a.to_bytes() < b.to_bytes());
+    }
+
+    // ── compare_same_type ──
+
+    #[test]
+    fn compare_same_type_cross_type_returns_none() {
+        let int = IndexedValue::Int(1);
+        let string = IndexedValue::String("1".into());
+        assert!(int.compare_same_type(&string).is_none());
+    }
+
+    #[test]
+    fn compare_same_type_int_ordering() {
+        let a = IndexedValue::Int(10);
+        let b = IndexedValue::Int(20);
+        assert_eq!(a.compare_same_type(&b), Some(std::cmp::Ordering::Less));
+    }
+
+    #[test]
+    fn compare_same_type_float_ordering() {
+        let a = IndexedValue::Float(1.0);
+        let b = IndexedValue::Float(2.0);
+        assert_eq!(a.compare_same_type(&b), Some(std::cmp::Ordering::Less));
+    }
+
+    // ── Value::to_indexed_value / to_index_key ──
+
+    #[test]
+    fn value_to_indexed_value_nan_returns_none() {
+        assert!(Value::Float(f64::NAN).to_indexed_value().is_none());
+    }
+
+    #[test]
+    fn value_to_indexed_value_vector_returns_none() {
+        assert!(Value::Vector(vec![1.0]).to_indexed_value().is_none());
+    }
+
+    #[test]
+    fn value_to_index_key_nan_returns_none() {
+        assert!(Value::Float(f64::NAN).to_index_key().is_none());
+    }
+
+    #[test]
+    fn value_to_index_key_vector_returns_none() {
+        assert!(Value::Vector(vec![1.0]).to_index_key().is_none());
+    }
+
+    #[test]
+    fn value_to_index_key_returns_some_for_indexable_types() {
+        assert!(Value::String("hi".into()).to_index_key().is_some());
+        assert!(Value::Int(42).to_index_key().is_some());
+        assert!(Value::Float(1.0).to_index_key().is_some());
+        assert!(Value::Bool(true).to_index_key().is_some());
+        assert!(Value::Bytes(vec![1]).to_index_key().is_some());
+    }
+
+    // ── From trait implementations ──
+
+    #[test]
+    fn value_from_string_owned() {
+        let v: Value = String::from("hello").into();
+        assert_eq!(v, Value::String("hello".into()));
+    }
+
+    #[test]
+    fn value_from_str_ref() {
+        let v: Value = "hello".into();
+        assert_eq!(v, Value::String("hello".into()));
+    }
+
+    #[test]
+    fn value_from_i64() {
+        let v: Value = 42i64.into();
+        assert_eq!(v, Value::Int(42));
+    }
+
+    #[test]
+    fn value_from_f64() {
+        let v: Value = 2.72f64.into();
+        assert_eq!(v, Value::Float(2.72));
+    }
+
+    #[test]
+    fn value_from_bool() {
+        let v: Value = true.into();
+        assert_eq!(v, Value::Bool(true));
+    }
+
+    #[test]
+    fn value_from_vec_u8() {
+        let v: Value = vec![1u8, 2, 3].into();
+        assert_eq!(v, Value::Bytes(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn value_from_vec_f32() {
+        let v: Value = vec![0.1f32, 0.2].into();
+        assert_eq!(v, Value::Vector(vec![0.1, 0.2]));
+    }
+}
