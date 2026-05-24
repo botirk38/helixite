@@ -21,6 +21,13 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
+ivy = "0.1.0"
+```
+
+Or use the latest from Git:
+
+```toml
+[dependencies]
 ivy = { git = "https://github.com/botirk38/ivy" }
 ```
 
