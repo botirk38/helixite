@@ -48,6 +48,92 @@ fn test_edges_by_property() {
 }
 
 #[test]
+fn test_edges_by_comparison_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", [("weight".to_string(), Value::Float(0.5))])
+        .unwrap();
+    db.add_edge(a, b, "knows", [("weight".to_string(), Value::Float(1.5))])
+        .unwrap();
+    db.add_edge(a, b, "knows", [("weight".to_string(), Value::Float(2.5))])
+        .unwrap();
+
+    db.indexes()
+        .edges()
+        .create_property("knows", "weight")
+        .unwrap();
+
+    assert_eq!(
+        db.edges()
+            .label("knows")
+            .gt("weight", Value::Float(1.0))
+            .count()
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        db.edges()
+            .label("knows")
+            .lte("weight", Value::Float(1.5))
+            .count()
+            .unwrap(),
+        2
+    );
+}
+
+#[test]
+fn test_traversal_by_ne_and_in_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    let c = db.add_node("User", Vec::new()).unwrap();
+
+    db.add_edge(
+        a,
+        b,
+        "knows",
+        [("kind".to_string(), Value::String("work".into()))],
+    )
+    .unwrap();
+    db.add_edge(
+        a,
+        c,
+        "knows",
+        [("kind".to_string(), Value::String("friend".into()))],
+    )
+    .unwrap();
+
+    db.indexes()
+        .edges()
+        .create_property("knows", "kind")
+        .unwrap();
+
+    let not_work = db
+        .node(a)
+        .outgoing("knows")
+        .ne("kind", Value::String("work".into()))
+        .nodes()
+        .unwrap();
+    assert_eq!(not_work.len(), 1);
+    assert_eq!(not_work[0].id, c);
+
+    let selected = db
+        .node(a)
+        .outgoing("knows")
+        .r#in("kind", [Value::String("work".into())])
+        .nodes()
+        .unwrap();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].id, b);
+}
+
+#[test]
 fn test_edges_limit_count_ids_and_first() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::new().open(dir.path()).unwrap();
@@ -329,4 +415,59 @@ fn test_edges_page_without_label() {
     assert_eq!(second.items.len(), 1);
     assert_eq!(second.items[0].id, edge2);
     assert!(second.next_cursor.is_none());
+}
+
+#[test]
+fn test_edges_count_all_no_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, b, "follows", Vec::new()).unwrap();
+
+    assert_eq!(db.edges().count().unwrap(), 2);
+}
+
+#[test]
+fn test_edges_collect_all_no_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, b, "follows", Vec::new()).unwrap();
+
+    let all = db.edges().collect().unwrap();
+    assert_eq!(all.len(), 2);
+}
+
+#[test]
+fn test_edges_collect_empty() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let all = db.edges().collect().unwrap();
+    assert!(all.is_empty());
+}
+
+#[test]
+fn test_edges_count_after_delete() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+
+    let e1 = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, b, "follows", Vec::new()).unwrap();
+
+    db.delete_edge(e1).unwrap();
+
+    assert_eq!(db.edges().count().unwrap(), 1);
+    assert_eq!(db.edges().label("knows").count().unwrap(), 0);
 }

@@ -58,6 +58,10 @@ impl StorageEngine for MemoryStorage {
         }
         result
     }
+
+    fn close(self) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl ReadTxn for MemoryTxn<'_> {

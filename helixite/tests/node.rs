@@ -663,3 +663,95 @@ fn test_get_nodes_batch_fails_on_missing() {
     let result = db.get_nodes(&[id1, 999, 1000]);
     assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
 }
+
+#[test]
+fn test_double_delete_node() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id = db.add_node("User", Vec::new()).unwrap();
+    db.delete_node(id).unwrap();
+
+    let result = db.delete_node(id);
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(_))));
+}
+
+#[test]
+fn test_delete_node_removes_from_vector_index() {
+    use helixite::HnswConfig;
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.indexes()
+        .vectors()
+        .create("Chunk", "embedding", 3, HnswConfig::default())
+        .unwrap();
+
+    let id = db
+        .add_node(
+            "Chunk",
+            vec![("embedding".to_string(), Value::Vector(vec![1.0, 0.0, 0.0]))],
+        )
+        .unwrap();
+
+    db.delete_node(id).unwrap();
+
+    let ids = db
+        .nodes()
+        .label("Chunk")
+        .nearest("embedding", vec![1.0, 0.0, 0.0], 5)
+        .ids()
+        .unwrap();
+    assert!(ids.is_empty());
+}
+
+#[test]
+fn test_add_node_empty_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id = db.add_node("", Vec::new()).unwrap();
+    let node = db.get_node(id).unwrap();
+    assert_eq!(node.label, "");
+}
+
+#[test]
+fn test_add_node_many_properties() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let props: Vec<(String, Value)> = (0..50)
+        .map(|i| (format!("prop_{i}"), Value::Int(i)))
+        .collect();
+
+    let id = db.add_node("Big", props).unwrap();
+    let node = db.get_node(id).unwrap();
+    assert_eq!(node.properties.len(), 50);
+    assert_eq!(node.properties.get("prop_0"), Some(&Value::Int(0)));
+    assert_eq!(node.properties.get("prop_49"), Some(&Value::Int(49)));
+}
+
+#[test]
+fn test_mutate_node_set_same_property_twice() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id = db
+        .add_node(
+            "User",
+            [("name".to_string(), Value::String("Alice".into()))],
+        )
+        .unwrap();
+
+    db.update_node(id)
+        .set_property("name", Value::String("Bob".into()))
+        .set_property("name", Value::String("Carol".into()))
+        .apply()
+        .unwrap();
+
+    let node = db.get_node(id).unwrap();
+    assert_eq!(
+        node.properties.get("name"),
+        Some(&Value::String("Carol".into()))
+    );
+}

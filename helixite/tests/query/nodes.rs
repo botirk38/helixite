@@ -96,6 +96,96 @@ fn test_nodes_by_property() {
 }
 
 #[test]
+fn test_nodes_by_comparison_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("User", [("age".to_string(), Value::Int(-10))])
+        .unwrap();
+    db.add_node("User", [("age".to_string(), Value::Int(20))])
+        .unwrap();
+    db.add_node("User", [("age".to_string(), Value::Int(30))])
+        .unwrap();
+    db.add_node("User", [("age".to_string(), Value::Int(40))])
+        .unwrap();
+
+    db.indexes().nodes().create_property("User", "age").unwrap();
+
+    assert_eq!(
+        db.nodes()
+            .label("User")
+            .gt("age", Value::Int(20))
+            .count()
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        db.nodes()
+            .label("User")
+            .gte("age", Value::Int(30))
+            .count()
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        db.nodes()
+            .label("User")
+            .lt("age", Value::Int(40))
+            .count()
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        db.nodes()
+            .label("User")
+            .lte("age", Value::Int(30))
+            .count()
+            .unwrap(),
+        3
+    );
+}
+
+#[test]
+fn test_nodes_by_ne_and_in_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node(
+        "User",
+        [("name".to_string(), Value::String("Alice".into()))],
+    )
+    .unwrap();
+    db.add_node("User", [("name".to_string(), Value::String("Bob".into()))])
+        .unwrap();
+    db.add_node("User", [("name".to_string(), Value::String("Cara".into()))])
+        .unwrap();
+
+    db.indexes()
+        .nodes()
+        .create_property("User", "name")
+        .unwrap();
+
+    let not_alice = db
+        .nodes()
+        .label("User")
+        .ne("name", Value::String("Alice".into()))
+        .collect()
+        .unwrap();
+    assert_eq!(not_alice.len(), 2);
+
+    let selected = db
+        .nodes()
+        .label("User")
+        .r#in(
+            "name",
+            [Value::String("Alice".into()), Value::String("Cara".into())],
+        )
+        .collect()
+        .unwrap();
+    assert_eq!(selected.len(), 2);
+}
+
+#[test]
 fn test_nodes_by_property_with_label() {
     let dir = tempdir().unwrap();
     let db = HelixiteBuilder::new().open(dir.path()).unwrap();
@@ -651,4 +741,66 @@ fn test_node_ids_rejects_after() {
 
     let err = db.nodes().label("User").after("n:1").ids().unwrap_err();
     assert!(err.to_string().contains("after() requires page()"));
+}
+
+#[test]
+fn test_nodes_collect_all_no_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("User", Vec::new()).unwrap();
+    db.add_node("Org", Vec::new()).unwrap();
+    db.add_node("User", Vec::new()).unwrap();
+
+    let all = db.nodes().collect().unwrap();
+    assert_eq!(all.len(), 3);
+}
+
+#[test]
+fn test_nodes_ids_all_no_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id1 = db.add_node("User", Vec::new()).unwrap();
+    let id2 = db.add_node("Org", Vec::new()).unwrap();
+
+    let ids = db.nodes().ids().unwrap();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&id1));
+    assert!(ids.contains(&id2));
+}
+
+#[test]
+fn test_nodes_count_all_no_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    db.add_node("A", Vec::new()).unwrap();
+    db.add_node("B", Vec::new()).unwrap();
+    db.add_node("C", Vec::new()).unwrap();
+
+    assert_eq!(db.nodes().count().unwrap(), 3);
+}
+
+#[test]
+fn test_nodes_collect_empty() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let all = db.nodes().collect().unwrap();
+    assert!(all.is_empty());
+}
+
+#[test]
+fn test_nodes_count_after_delete() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let id1 = db.add_node("User", Vec::new()).unwrap();
+    db.add_node("User", Vec::new()).unwrap();
+
+    db.delete_node(id1).unwrap();
+
+    assert_eq!(db.nodes().label("User").count().unwrap(), 1);
+    assert_eq!(db.nodes().count().unwrap(), 1);
 }

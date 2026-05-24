@@ -53,6 +53,113 @@ fn test_node_traversal_any() {
 }
 
 #[test]
+fn test_multi_hop_then_outgoing() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(b, c, "knows", Vec::new()).unwrap();
+
+    let nodes = db
+        .node(a)
+        .outgoing("knows")
+        .then_outgoing("knows")
+        .nodes()
+        .unwrap();
+
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].id, c);
+}
+
+#[test]
+fn test_multi_hop_then_incoming() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(c, b, "follows", Vec::new()).unwrap();
+
+    let nodes = db
+        .node(a)
+        .outgoing("knows")
+        .then_incoming("follows")
+        .nodes()
+        .unwrap();
+
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].id, c);
+}
+
+#[test]
+fn test_multi_hop_from_node_ref_query() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(b, c, "likes", Vec::new()).unwrap();
+
+    let ids = db
+        .node(a)
+        .then_outgoing("knows")
+        .then_outgoing("likes")
+        .ids()
+        .unwrap();
+
+    assert_eq!(ids, vec![c]);
+}
+
+#[test]
+fn test_multi_hop_count_limit_and_first() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+    let d = db.add_node("D", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    db.add_edge(a, c, "knows", Vec::new()).unwrap();
+    db.add_edge(b, d, "knows", Vec::new()).unwrap();
+    db.add_edge(c, d, "knows", Vec::new()).unwrap();
+
+    let query = db.node(a).then_outgoing("knows").then_outgoing("knows");
+
+    assert_eq!(query.count().unwrap(), 1);
+    assert_eq!(
+        db.node(a)
+            .then_outgoing("knows")
+            .then_outgoing("knows")
+            .limit(1)
+            .ids()
+            .unwrap(),
+        vec![d]
+    );
+    assert_eq!(
+        db.node(a)
+            .then_outgoing("knows")
+            .then_outgoing("knows")
+            .first_node()
+            .unwrap()
+            .unwrap()
+            .id,
+        d
+    );
+}
+
+#[test]
 fn test_traversal_persists_after_reopen() {
     let dir = tempdir().unwrap();
     let path = dir.path();
@@ -115,6 +222,100 @@ fn test_traversal_where_eq_indexed() {
         .count()
         .unwrap();
     assert_eq!(count, 2);
+}
+
+#[test]
+fn test_traversal_where_comparison_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+
+    db.add_edge(a, b, "knows", [("weight".to_string(), Value::Float(1.0))])
+        .unwrap();
+    db.add_edge(a, c, "knows", [("weight".to_string(), Value::Float(2.0))])
+        .unwrap();
+
+    db.indexes()
+        .edges()
+        .create_property("knows", "weight")
+        .unwrap();
+
+    let nodes = db
+        .node(a)
+        .outgoing("knows")
+        .gt("weight", Value::Float(1.0))
+        .nodes()
+        .unwrap();
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].id, c);
+
+    let edges = db
+        .node(a)
+        .outgoing("knows")
+        .lte("weight", Value::Float(1.0))
+        .edges()
+        .unwrap();
+    assert_eq!(edges.len(), 1);
+}
+
+#[test]
+fn test_traversal_where_ne_and_in_filters() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let c = db.add_node("C", Vec::new()).unwrap();
+    let d = db.add_node("D", Vec::new()).unwrap();
+
+    db.add_edge(
+        a,
+        b,
+        "knows",
+        [("kind".to_string(), Value::String("work".into()))],
+    )
+    .unwrap();
+    db.add_edge(
+        a,
+        c,
+        "knows",
+        [("kind".to_string(), Value::String("home".into()))],
+    )
+    .unwrap();
+    db.add_edge(
+        a,
+        d,
+        "knows",
+        [("kind".to_string(), Value::String("gym".into()))],
+    )
+    .unwrap();
+
+    db.indexes()
+        .edges()
+        .create_property("knows", "kind")
+        .unwrap();
+
+    let not_work = db
+        .node(a)
+        .outgoing("knows")
+        .ne("kind", Value::String("work".into()))
+        .count()
+        .unwrap();
+    assert_eq!(not_work, 2);
+
+    let selected = db
+        .node(a)
+        .outgoing("knows")
+        .r#in(
+            "kind",
+            [Value::String("work".into()), Value::String("gym".into())],
+        )
+        .nodes()
+        .unwrap();
+    assert_eq!(selected.len(), 2);
 }
 
 #[test]
@@ -645,4 +846,62 @@ fn test_traversal_nodes_rejects_after() {
         .nodes()
         .unwrap_err();
     assert!(err.to_string().contains("after() requires page()"));
+}
+
+#[test]
+fn test_traversal_from_deleted_node() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    db.delete_node(a).unwrap();
+
+    let edges = db.node(a).outgoing("knows").edges().unwrap();
+    assert!(edges.is_empty());
+
+    let nodes = db.node(a).outgoing("knows").nodes().unwrap();
+    assert!(nodes.is_empty());
+
+    let count = db.node(a).outgoing("knows").count().unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn test_traversal_with_self_loop() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    db.add_edge(a, a, "self_ref", Vec::new()).unwrap();
+
+    let out_edges = db.node(a).outgoing("self_ref").edges().unwrap();
+    assert_eq!(out_edges.len(), 1);
+    assert_eq!(out_edges[0].from, a);
+    assert_eq!(out_edges[0].to, a);
+
+    let in_nodes = db.node(a).incoming("self_ref").nodes().unwrap();
+    assert_eq!(in_nodes.len(), 1);
+    assert_eq!(in_nodes[0].id, a);
+
+    let out_count = db.node(a).outgoing("self_ref").count().unwrap();
+    assert_eq!(out_count, 1);
+}
+
+#[test]
+fn test_traversal_no_edges_for_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let edges = db.node(a).outgoing("follows").edges().unwrap();
+    assert!(edges.is_empty());
+
+    let count = db.node(a).outgoing("follows").count().unwrap();
+    assert_eq!(count, 0);
 }

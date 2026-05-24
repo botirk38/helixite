@@ -9,7 +9,7 @@ use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
 use crate::storage::WriteTxn;
 use crate::storage::engine::{Db, Scan};
-use crate::value::Value;
+use crate::value::{IndexedValue, Value};
 
 use super::codec::{KeyBuilder, KeyReader};
 use super::labels::NodeLabelIndex;
@@ -35,18 +35,6 @@ impl NodePropertyIndex {
         )
     }
 
-    pub(crate) fn lookup_prefix(label: &str, property: &str, value: &Value) -> Option<Vec<u8>> {
-        let value_bytes = value.to_index_key()?;
-        Some(
-            KeyBuilder::new()
-                .u8(0)
-                .str(label)
-                .str(property)
-                .bytes(&value_bytes)
-                .finish(),
-        )
-    }
-
     pub(crate) fn index_prefix(label: &str, property: &str) -> Vec<u8> {
         KeyBuilder::new().u8(0).str(label).str(property).finish()
     }
@@ -60,6 +48,21 @@ impl NodePropertyIndex {
         let id = reader.u64()?;
         reader.finish()?;
         Some(id)
+    }
+
+    pub(crate) fn decode_value(key: &[u8]) -> Option<IndexedValue> {
+        let mut reader = KeyReader::new(key);
+        reader.u8()?;
+        reader.str()?;
+        reader.str()?;
+        IndexedValue::from_bytes(reader.bytes()?)
+    }
+
+    fn unique_lookup_prefix(label: &str, property: &str, value: &Value) -> Option<Vec<u8>> {
+        Self::key(label, property, value, 0).map(|mut key| {
+            key.truncate(key.len() - std::mem::size_of::<NodeId>());
+            key
+        })
     }
 }
 
@@ -84,18 +87,6 @@ impl EdgePropertyIndex {
         )
     }
 
-    pub(crate) fn lookup_prefix(label: &str, property: &str, value: &Value) -> Option<Vec<u8>> {
-        let value_bytes = value.to_index_key()?;
-        Some(
-            KeyBuilder::new()
-                .u8(1)
-                .str(label)
-                .str(property)
-                .bytes(&value_bytes)
-                .finish(),
-        )
-    }
-
     pub(crate) fn index_prefix(label: &str, property: &str) -> Vec<u8> {
         KeyBuilder::new().u8(1).str(label).str(property).finish()
     }
@@ -110,25 +101,61 @@ impl EdgePropertyIndex {
         reader.finish()?;
         Some(id)
     }
+
+    pub(crate) fn decode_value(key: &[u8]) -> Option<IndexedValue> {
+        let mut reader = KeyReader::new(key);
+        reader.u8()?;
+        reader.str()?;
+        reader.str()?;
+        IndexedValue::from_bytes(reader.bytes()?)
+    }
+
+    fn unique_lookup_prefix(label: &str, property: &str, value: &Value) -> Option<Vec<u8>> {
+        Self::key(label, property, value, 0).map(|mut key| {
+            key.truncate(key.len() - std::mem::size_of::<EdgeId>());
+            key
+        })
+    }
 }
 
 pub(crate) struct PropertyIndexMetadata;
 
 impl PropertyIndexMetadata {
+    const NODE_PROPERTY: u8 = 0;
+    const EDGE_PROPERTY: u8 = 1;
+    const UNIQUE_NODE_PROPERTY: u8 = 2;
+    const UNIQUE_EDGE_PROPERTY: u8 = 3;
+
     pub(crate) fn node_key(label: &str, property: &str) -> Vec<u8> {
-        KeyBuilder::new().u8(0).str(label).str(property).finish()
+        Self::key(Self::NODE_PROPERTY, label, property)
     }
 
     pub(crate) fn edge_key(label: &str, property: &str) -> Vec<u8> {
-        KeyBuilder::new().u8(1).str(label).str(property).finish()
+        Self::key(Self::EDGE_PROPERTY, label, property)
+    }
+
+    pub(crate) fn unique_node_key(label: &str, property: &str) -> Vec<u8> {
+        Self::key(Self::UNIQUE_NODE_PROPERTY, label, property)
+    }
+
+    pub(crate) fn unique_edge_key(label: &str, property: &str) -> Vec<u8> {
+        Self::key(Self::UNIQUE_EDGE_PROPERTY, label, property)
     }
 
     pub(crate) fn node_prefix() -> Vec<u8> {
-        KeyBuilder::new().u8(0).finish()
+        Self::prefix(Self::NODE_PROPERTY)
     }
 
     pub(crate) fn edge_prefix() -> Vec<u8> {
-        KeyBuilder::new().u8(1).finish()
+        Self::prefix(Self::EDGE_PROPERTY)
+    }
+
+    pub(crate) fn unique_node_prefix() -> Vec<u8> {
+        Self::prefix(Self::UNIQUE_NODE_PROPERTY)
+    }
+
+    pub(crate) fn unique_edge_prefix() -> Vec<u8> {
+        Self::prefix(Self::UNIQUE_EDGE_PROPERTY)
     }
 
     pub(crate) fn decode_label_property(key: &[u8]) -> Option<(String, String)> {
@@ -138,6 +165,14 @@ impl PropertyIndexMetadata {
         let property = std::str::from_utf8(reader.str()?).ok()?.to_string();
         reader.finish()?;
         Some((label, property))
+    }
+
+    fn key(kind: u8, label: &str, property: &str) -> Vec<u8> {
+        KeyBuilder::new().u8(kind).str(label).str(property).finish()
+    }
+
+    fn prefix(kind: u8) -> Vec<u8> {
+        KeyBuilder::new().u8(kind).finish()
     }
 }
 
@@ -153,12 +188,38 @@ impl PropertyIndexRegistry {
             .is_some_and(|props| props.contains(property))
     }
 
+    pub(crate) fn into_indexes(self) -> BTreeMap<String, BTreeSet<String>> {
+        self.indexes
+    }
+
     pub(crate) fn load_nodes_from_txn(txn: &dyn ReadTxn) -> crate::error::Result<Self> {
         Self::load_from_txn(txn, PropertyIndexMetadata::node_prefix())
     }
 
     pub(crate) fn load_edges_from_txn(txn: &dyn ReadTxn) -> crate::error::Result<Self> {
         Self::load_from_txn(txn, PropertyIndexMetadata::edge_prefix())
+    }
+
+    pub(crate) fn load_nodes_for_label(
+        txn: &dyn ReadTxn,
+        label: &str,
+    ) -> crate::error::Result<Self> {
+        Self::load_nodes_from_txn(txn).map(|registry| registry.for_label(label))
+    }
+
+    pub(crate) fn load_edges_for_label(
+        txn: &dyn ReadTxn,
+        label: &str,
+    ) -> crate::error::Result<Self> {
+        Self::load_edges_from_txn(txn).map(|registry| registry.for_label(label))
+    }
+
+    pub(crate) fn load_unique_nodes_from_txn(txn: &dyn ReadTxn) -> crate::error::Result<Self> {
+        Self::load_from_txn(txn, PropertyIndexMetadata::unique_node_prefix())
+    }
+
+    pub(crate) fn load_unique_edges_from_txn(txn: &dyn ReadTxn) -> crate::error::Result<Self> {
+        Self::load_from_txn(txn, PropertyIndexMetadata::unique_edge_prefix())
     }
 
     fn load_from_txn(txn: &dyn ReadTxn, prefix: Vec<u8>) -> crate::error::Result<Self> {
@@ -175,6 +236,15 @@ impl PropertyIndexRegistry {
         }
 
         Ok(Self { indexes })
+    }
+
+    fn for_label(mut self, label: &str) -> Self {
+        let indexes = self
+            .indexes
+            .remove(label)
+            .map(|properties| BTreeMap::from([(label.to_string(), properties)]))
+            .unwrap_or_default();
+        Self { indexes }
     }
 }
 
@@ -261,6 +331,124 @@ impl NodePropertyIndexes {
             txn.put(Db::Properties, &prop_key, &[])?;
         }
 
+        Ok(())
+    }
+
+    pub(crate) fn create_unique(
+        storage: &impl StorageEngine,
+        label: &str,
+        property: &str,
+    ) -> Result<()> {
+        let metadata_key = PropertyIndexMetadata::unique_node_key(label, property);
+
+        storage.write(|txn| {
+            if !Self::label_exists(txn, label)? {
+                return Err(HelixiteError::LabelNotFound(label.to_string()));
+            }
+
+            if txn.get(Db::Metadata, &metadata_key)?.is_some() {
+                return Err(HelixiteError::DuplicateKey(format!(
+                    "unique node property index {label}::{property} already exists"
+                )));
+            }
+
+            if txn
+                .get(
+                    Db::Metadata,
+                    &PropertyIndexMetadata::node_key(label, property),
+                )?
+                .is_none()
+            {
+                Self::backfill(txn, label, property)?;
+                txn.put(
+                    Db::Metadata,
+                    &PropertyIndexMetadata::node_key(label, property),
+                    &[],
+                )?;
+            }
+
+            Self::validate_unique(txn, label, property)?;
+            txn.put(Db::Metadata, &metadata_key, &[])
+        })
+    }
+
+    fn validate_unique(txn: &dyn ReadTxn, label: &str, property: &str) -> Result<()> {
+        let mut previous_value: Option<IndexedValue> = None;
+        for entry in txn.iter(
+            Db::Properties,
+            Scan::Prefix(&NodePropertyIndex::index_prefix(label, property)),
+        )? {
+            let entry = entry?;
+            let value = NodePropertyIndex::decode_value(entry.key)
+                .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
+            if previous_value.as_ref() == Some(&value) {
+                return Err(HelixiteError::DuplicateKey(format!(
+                    "node unique property {label}::{property}"
+                )));
+            }
+            previous_value = Some(value);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_unique_from_txn(
+        txn: &dyn ReadTxn,
+        label: &str,
+        properties: &BTreeMap<String, Value>,
+    ) -> Result<()> {
+        let registry = PropertyIndexRegistry::load_unique_nodes_from_txn(txn)?;
+        for (property, value) in properties {
+            if registry.contains(label, property)
+                && let Some(prefix) =
+                    NodePropertyIndex::unique_lookup_prefix(label, property, value)
+            {
+                Self::ensure_unique_value(txn, prefix, label, property)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_unique_replace_from_txn(
+        txn: &dyn ReadTxn,
+        id: NodeId,
+        label: &str,
+        properties: &BTreeMap<String, Value>,
+    ) -> Result<()> {
+        let registry = PropertyIndexRegistry::load_unique_nodes_from_txn(txn)?;
+        for (property, value) in properties {
+            if registry.contains(label, property)
+                && let Some(prefix) =
+                    NodePropertyIndex::unique_lookup_prefix(label, property, value)
+            {
+                for entry in txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
+                    let entry = entry?;
+                    let existing_id =
+                        NodePropertyIndex::decode_node_id(entry.key).ok_or_else(|| {
+                            HelixiteError::Storage("corrupt property index key".into())
+                        })?;
+                    if existing_id != id {
+                        return Err(HelixiteError::DuplicateKey(format!(
+                            "node unique property {label}::{property}"
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn ensure_unique_value(
+        txn: &dyn ReadTxn,
+        prefix: Vec<u8>,
+        label: &str,
+        property: &str,
+    ) -> Result<()> {
+        if let Some(entry) = txn.iter(Db::Properties, Scan::Prefix(&prefix))?.next() {
+            entry?;
+            return Err(HelixiteError::DuplicateKey(format!(
+                "node unique property {label}::{property}"
+            )));
+        }
         Ok(())
     }
 
@@ -444,6 +632,124 @@ impl EdgePropertyIndexes {
             txn.put(Db::Properties, &prop_key, &[])?;
         }
 
+        Ok(())
+    }
+
+    pub(crate) fn create_unique(
+        storage: &impl StorageEngine,
+        label: &str,
+        property: &str,
+    ) -> Result<()> {
+        let metadata_key = PropertyIndexMetadata::unique_edge_key(label, property);
+
+        storage.write(|txn| {
+            if !Self::label_exists(txn, label)? {
+                return Err(HelixiteError::LabelNotFound(label.to_string()));
+            }
+
+            if txn.get(Db::Metadata, &metadata_key)?.is_some() {
+                return Err(HelixiteError::DuplicateKey(format!(
+                    "unique edge property index {label}::{property} already exists"
+                )));
+            }
+
+            if txn
+                .get(
+                    Db::Metadata,
+                    &PropertyIndexMetadata::edge_key(label, property),
+                )?
+                .is_none()
+            {
+                Self::backfill(txn, label, property)?;
+                txn.put(
+                    Db::Metadata,
+                    &PropertyIndexMetadata::edge_key(label, property),
+                    &[],
+                )?;
+            }
+
+            Self::validate_unique(txn, label, property)?;
+            txn.put(Db::Metadata, &metadata_key, &[])
+        })
+    }
+
+    fn validate_unique(txn: &dyn ReadTxn, label: &str, property: &str) -> Result<()> {
+        let mut previous_value: Option<IndexedValue> = None;
+        for entry in txn.iter(
+            Db::Properties,
+            Scan::Prefix(&EdgePropertyIndex::index_prefix(label, property)),
+        )? {
+            let entry = entry?;
+            let value = EdgePropertyIndex::decode_value(entry.key)
+                .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
+            if previous_value.as_ref() == Some(&value) {
+                return Err(HelixiteError::DuplicateKey(format!(
+                    "edge unique property {label}::{property}"
+                )));
+            }
+            previous_value = Some(value);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_unique_from_txn(
+        txn: &dyn ReadTxn,
+        label: &str,
+        properties: &BTreeMap<String, Value>,
+    ) -> Result<()> {
+        let registry = PropertyIndexRegistry::load_unique_edges_from_txn(txn)?;
+        for (property, value) in properties {
+            if registry.contains(label, property)
+                && let Some(prefix) =
+                    EdgePropertyIndex::unique_lookup_prefix(label, property, value)
+            {
+                Self::ensure_unique_value(txn, prefix, label, property)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_unique_replace_from_txn(
+        txn: &dyn ReadTxn,
+        id: EdgeId,
+        label: &str,
+        properties: &BTreeMap<String, Value>,
+    ) -> Result<()> {
+        let registry = PropertyIndexRegistry::load_unique_edges_from_txn(txn)?;
+        for (property, value) in properties {
+            if registry.contains(label, property)
+                && let Some(prefix) =
+                    EdgePropertyIndex::unique_lookup_prefix(label, property, value)
+            {
+                for entry in txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
+                    let entry = entry?;
+                    let existing_id =
+                        EdgePropertyIndex::decode_edge_id(entry.key).ok_or_else(|| {
+                            HelixiteError::Storage("corrupt property index key".into())
+                        })?;
+                    if existing_id != id {
+                        return Err(HelixiteError::DuplicateKey(format!(
+                            "edge unique property {label}::{property}"
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn ensure_unique_value(
+        txn: &dyn ReadTxn,
+        prefix: Vec<u8>,
+        label: &str,
+        property: &str,
+    ) -> Result<()> {
+        if let Some(entry) = txn.iter(Db::Properties, Scan::Prefix(&prefix))?.next() {
+            entry?;
+            return Err(HelixiteError::DuplicateKey(format!(
+                "edge unique property {label}::{property}"
+            )));
+        }
         Ok(())
     }
 }

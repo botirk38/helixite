@@ -266,6 +266,45 @@ fn test_mutate_edge_label_and_properties() {
 }
 
 #[test]
+fn test_mutate_edge_set_from_and_to() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    let c = db.add_node("User", Vec::new()).unwrap();
+    let d = db.add_node("User", Vec::new()).unwrap();
+
+    let edge = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    db.update_edge(edge).set_from(c).set_to(d).apply().unwrap();
+
+    let updated = db.get_edge(edge).unwrap();
+    assert_eq!(updated.from, c);
+    assert_eq!(updated.to, d);
+    assert_eq!(db.node(a).outgoing("knows").count().unwrap(), 0);
+    assert_eq!(db.node(c).outgoing("knows").count().unwrap(), 1);
+    assert_eq!(db.node(b).incoming("knows").count().unwrap(), 0);
+    assert_eq!(db.node(d).incoming("knows").count().unwrap(), 1);
+}
+
+#[test]
+fn test_mutate_edge_set_from_missing_node_fails() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let b = db.add_node("User", Vec::new()).unwrap();
+    let edge = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    let result = db.update_edge(edge).set_from(999).apply();
+
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
+    assert_eq!(db.get_edge(edge).unwrap().from, a);
+    assert_eq!(db.node(a).outgoing("knows").count().unwrap(), 1);
+}
+
+#[test]
 fn test_mutate_edge_persists_after_reopen() {
     let dir = tempdir().unwrap();
     let path = dir.path();
@@ -686,4 +725,129 @@ fn test_delete_node_cascades_to_edge_label_index() {
 
     let knows = db.edges().label("knows").collect().unwrap();
     assert!(knows.is_empty());
+}
+
+#[test]
+fn test_add_self_loop_edge() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let edge_id = db.add_edge(a, a, "self_ref", Vec::new()).unwrap();
+
+    let edge = db.get_edge(edge_id).unwrap();
+    assert_eq!(edge.from, a);
+    assert_eq!(edge.to, a);
+
+    let out = db.node(a).outgoing("self_ref").edges().unwrap();
+    assert_eq!(out.len(), 1);
+
+    let inc = db.node(a).incoming("self_ref").edges().unwrap();
+    assert_eq!(inc.len(), 1);
+}
+
+#[test]
+fn test_add_edge_missing_from_node() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let b = db.add_node("User", Vec::new()).unwrap();
+    let result = db.add_edge(999, b, "knows", Vec::new());
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
+}
+
+#[test]
+fn test_add_edge_missing_to_node() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("User", Vec::new()).unwrap();
+    let result = db.add_edge(a, 999, "knows", Vec::new());
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(999))));
+}
+
+#[test]
+fn test_add_edge_both_endpoints_missing() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let result = db.add_edge(998, 999, "knows", Vec::new());
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(998))));
+}
+
+#[test]
+fn test_double_delete_edge() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+    let edge_id = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    db.delete_edge(edge_id).unwrap();
+    let result = db.delete_edge(edge_id);
+    assert!(matches!(result, Err(HelixiteError::EdgeNotFound(_))));
+}
+
+#[test]
+fn test_add_edge_to_same_target_multiple_times() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+
+    let e1 = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    let e2 = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+    let e3 = db.add_edge(a, b, "knows", Vec::new()).unwrap();
+
+    assert_ne!(e1, e2);
+    assert_ne!(e2, e3);
+
+    let out = db.node(a).outgoing("knows").edges().unwrap();
+    assert_eq!(out.len(), 3);
+}
+
+#[test]
+fn test_add_edge_empty_label() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let b = db.add_node("B", Vec::new()).unwrap();
+
+    let edge_id = db.add_edge(a, b, "", Vec::new()).unwrap();
+    let edge = db.get_edge(edge_id).unwrap();
+    assert_eq!(edge.label, "");
+}
+
+#[test]
+fn test_delete_self_loop_edge() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    let edge_id = db.add_edge(a, a, "self", Vec::new()).unwrap();
+
+    db.delete_edge(edge_id).unwrap();
+
+    let out = db.node(a).outgoing("self").edges().unwrap();
+    assert!(out.is_empty());
+    let inc = db.node(a).incoming("self").edges().unwrap();
+    assert!(inc.is_empty());
+}
+
+#[test]
+fn test_delete_node_with_self_loop() {
+    let dir = tempdir().unwrap();
+    let db = HelixiteBuilder::new().open(dir.path()).unwrap();
+
+    let a = db.add_node("A", Vec::new()).unwrap();
+    db.add_edge(a, a, "self", Vec::new()).unwrap();
+
+    db.delete_node(a).unwrap();
+
+    let result = db.get_node(a);
+    assert!(matches!(result, Err(HelixiteError::NodeNotFound(_))));
+    assert_eq!(db.edges().label("self").count().unwrap(), 0);
 }

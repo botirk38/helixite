@@ -1,6 +1,7 @@
 use crate::error::{HelixiteError, Result};
 use crate::id::NodeId;
 use crate::node::Node;
+use crate::query::filter::PropertyFilter;
 use crate::query::pagination::{Cursor, Page};
 use crate::storage::ReadTxn;
 use crate::storage::StorageEngine;
@@ -9,13 +10,8 @@ use crate::value::Value;
 
 use crate::index::labels::NodeLabelIndex;
 use crate::index::properties::NodePropertyIndex;
-use crate::index::properties::PropertyIndexMetadata;
+use crate::index::properties::PropertyIndexRegistry;
 use crate::index::vector::VectorIndex;
-
-#[derive(Debug, Clone)]
-pub(crate) enum PropertyFilter {
-    Eq(String, Value),
-}
 
 pub struct NodeQuery<'a, S: StorageEngine> {
     storage: &'a S,
@@ -53,6 +49,48 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
     pub fn eq(mut self, property: impl Into<String>, value: Value) -> Self {
         self.filters
             .push(PropertyFilter::Eq(property.into(), value));
+        self
+    }
+
+    pub fn ne(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Ne(property.into(), value));
+        self
+    }
+
+    pub fn gt(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Gt(property.into(), value));
+        self
+    }
+
+    pub fn gte(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Gte(property.into(), value));
+        self
+    }
+
+    pub fn lt(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Lt(property.into(), value));
+        self
+    }
+
+    pub fn lte(mut self, property: impl Into<String>, value: Value) -> Self {
+        self.filters
+            .push(PropertyFilter::Lte(property.into(), value));
+        self
+    }
+
+    pub fn r#in(
+        mut self,
+        property: impl Into<String>,
+        values: impl IntoIterator<Item = Value>,
+    ) -> Self {
+        self.filters.push(PropertyFilter::In(
+            property.into(),
+            values.into_iter().collect(),
+        ));
         self
     }
 
@@ -240,45 +278,37 @@ impl NodeQueryExec<'_> {
             HelixiteError::IndexNotFound("property filter requires a label".to_string())
         })?;
 
+        let registry = PropertyIndexRegistry::load_nodes_for_label(self.txn, label)?;
         let mut id_sets: Vec<Vec<NodeId>> = Vec::with_capacity(self.filters.len());
         for filter in &self.filters {
-            let PropertyFilter::Eq(property, value) = filter;
+            let property = filter.property();
 
-            if !self.is_property_indexed(label, property)? {
+            if !registry.contains(label, property) {
                 return Err(HelixiteError::IndexNotFound(format!(
                     "no property index for {label}::{property}"
                 )));
             }
 
-            id_sets.push(self.scan_ids_by_property(property, value, label)?);
+            id_sets.push(self.scan_ids_by_property(filter, label)?);
         }
         self.intersect_id_sets(id_sets)
     }
 
-    fn is_property_indexed(&self, label: &str, property: &str) -> Result<bool> {
-        let key = PropertyIndexMetadata::node_key(label, property);
-        match self.txn.get(Db::Metadata, &key)? {
-            Some(_) => Ok(true),
-            None => Ok(false),
-        }
-    }
-
-    fn scan_ids_by_property(
-        &self,
-        property: &str,
-        value: &Value,
-        label: &str,
-    ) -> Result<Vec<NodeId>> {
-        let Some(prefix) = NodePropertyIndex::lookup_prefix(label, property, value) else {
-            return Ok(Vec::new());
-        };
-
+    fn scan_ids_by_property(&self, filter: &PropertyFilter, label: &str) -> Result<Vec<NodeId>> {
         let mut ids = Vec::new();
-        for entry in self.txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
+
+        for entry in self.txn.iter(
+            Db::Properties,
+            Scan::Prefix(&NodePropertyIndex::index_prefix(label, filter.property())),
+        )? {
             let entry = entry?;
             let node_id = NodePropertyIndex::decode_node_id(entry.key)
                 .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
-            ids.push(node_id);
+            let indexed_value = NodePropertyIndex::decode_value(entry.key)
+                .ok_or_else(|| HelixiteError::Storage("corrupt property index key".into()))?;
+            if filter.matches_indexed(&indexed_value) {
+                ids.push(node_id);
+            }
         }
 
         ids.sort_unstable();

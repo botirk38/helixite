@@ -5,6 +5,7 @@ pub mod edge;
 pub mod error;
 pub mod id;
 pub mod node;
+pub mod stats;
 pub mod storage;
 pub mod value;
 
@@ -19,6 +20,7 @@ pub use error::{HelixiteError, Result};
 pub use id::{EdgeId, NodeId};
 pub use index::vector::{HnswConfig, SimilarityKind};
 pub use node::Node;
-pub use query::{EdgeQuery, NodeQuery, NodeRefQuery, Page, TraversalQuery};
+pub use query::{EdgeQuery, MultiHopTraversalQuery, NodeQuery, NodeRefQuery, Page, TraversalQuery};
+pub use stats::{GraphStats, IndexStats, LabelStats};
 pub use txn::{EdgeMut, EdgeMutBuilder, NodeMut, NodeMutBuilder, ReadTxn, WriteTxn};
 pub use value::Value;
