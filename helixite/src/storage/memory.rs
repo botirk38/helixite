@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use crate::error::Result;
@@ -13,6 +13,7 @@ pub struct MemoryStorage {
 struct MemoryTxn<'a> {
     data: &'a Mutex<HashMap<MemoryKey, Vec<u8>>>,
     snapshot: HashMap<MemoryKey, Vec<u8>>,
+    deleted: HashSet<MemoryKey>,
     committed: bool,
 }
 
@@ -48,6 +49,7 @@ impl StorageEngine for MemoryStorage {
         let mut txn = MemoryTxn {
             data: &self.data,
             snapshot,
+            deleted: HashSet::new(),
             committed: false,
         };
         let result = f(&mut txn);
@@ -91,7 +93,9 @@ impl WriteTxn for MemoryTxn<'_> {
     }
 
     fn delete(&mut self, db: Db, key: &[u8]) -> Result<()> {
-        self.snapshot.remove(&(db, key.to_vec()));
+        let k = (db, key.to_vec());
+        self.snapshot.remove(&k);
+        self.deleted.insert(k);
         Ok(())
     }
 }
@@ -100,6 +104,9 @@ impl Drop for MemoryTxn<'_> {
     fn drop(&mut self) {
         if self.committed {
             let mut data = self.data.lock().unwrap();
+            for key in self.deleted.drain() {
+                data.remove(&key);
+            }
             for (key, value) in self.snapshot.drain() {
                 data.insert(key, value);
             }

@@ -92,3 +92,30 @@ fn test_memory_txn_write_aborts_on_error() {
     let result = storage.read(|txn| txn.get(Db::Nodes, &[1])).unwrap();
     assert_eq!(result, None);
 }
+
+#[test]
+fn test_memory_txn_delete_persists_across_transactions() {
+    let storage = MemoryStorage::default();
+
+    storage
+        .write(|txn| {
+            txn.put(Db::Metadata, b"key", b"value")?;
+            Ok::<_, helixite::HelixiteError>(())
+        })
+        .unwrap();
+
+    assert_eq!(
+        storage.read(|txn| txn.get(Db::Metadata, b"key")).unwrap(),
+        Some(b"value".to_vec())
+    );
+
+    storage
+        .write(|txn| {
+            txn.delete(Db::Metadata, b"key")?;
+            Ok::<_, helixite::HelixiteError>(())
+        })
+        .unwrap();
+
+    let result = storage.read(|txn| txn.get(Db::Metadata, b"key")).unwrap();
+    assert_eq!(result, None);
+}
