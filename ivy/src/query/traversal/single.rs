@@ -181,9 +181,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
 
     pub fn edges(self) -> Result<Vec<Edge>> {
         if self.after.is_some() {
-            return Err(IvyError::InvalidConfig(
-                "after() requires page()".into(),
-            ));
+            return Err(IvyError::InvalidConfig("after() requires page()".into()));
         }
         self.storage.read(|txn| {
             let exec = TraversalExec {
@@ -201,9 +199,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
 
     pub fn nodes(self) -> Result<Vec<Node>> {
         if self.after.is_some() {
-            return Err(IvyError::InvalidConfig(
-                "after() requires page()".into(),
-            ));
+            return Err(IvyError::InvalidConfig("after() requires page()".into()));
         }
         self.storage.read(|txn| {
             let exec = TraversalExec {
@@ -221,9 +217,7 @@ impl<'a, S: StorageEngine> TraversalQuery<'a, S> {
 
     pub fn count(self) -> Result<usize> {
         if self.after.is_some() {
-            return Err(IvyError::InvalidConfig(
-                "after() requires page()".into(),
-            ));
+            return Err(IvyError::InvalidConfig("after() requires page()".into()));
         }
         self.storage.read(|txn| {
             let exec = TraversalExec {

@@ -97,9 +97,7 @@ impl<'a, S: StorageEngine> EdgeQuery<'a, S> {
 
     pub fn collect(self) -> Result<Vec<Edge>> {
         if self.after.is_some() {
-            return Err(IvyError::InvalidConfig(
-                "after() requires page()".into(),
-            ));
+            return Err(IvyError::InvalidConfig("after() requires page()".into()));
         }
         self.storage.read(|txn| {
             let exec = EdgeQueryExec {
@@ -115,9 +113,7 @@ impl<'a, S: StorageEngine> EdgeQuery<'a, S> {
 
     pub fn ids(self) -> Result<Vec<EdgeId>> {
         if self.after.is_some() {
-            return Err(IvyError::InvalidConfig(
-                "after() requires page()".into(),
-            ));
+            return Err(IvyError::InvalidConfig("after() requires page()".into()));
         }
         self.storage.read(|txn| {
             let exec = EdgeQueryExec {
@@ -133,9 +129,7 @@ impl<'a, S: StorageEngine> EdgeQuery<'a, S> {
 
     pub fn count(self) -> Result<usize> {
         if self.after.is_some() {
-            return Err(IvyError::InvalidConfig(
-                "after() requires page()".into(),
-            ));
+            return Err(IvyError::InvalidConfig("after() requires page()".into()));
         }
         self.storage.read(|txn| {
             let exec = EdgeQueryExec {

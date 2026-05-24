@@ -79,22 +79,22 @@ impl Cursor {
     }
 
     pub(crate) fn decode_node(s: &str) -> Result<Self> {
-        let rest = s.strip_prefix("n:").ok_or_else(|| {
-            IvyError::InvalidCursor("node cursor must start with 'n:'".into())
-        })?;
-        let node_id = rest.parse().map_err(|_| {
-            IvyError::InvalidCursor(format!("invalid node id in cursor: {rest}"))
-        })?;
+        let rest = s
+            .strip_prefix("n:")
+            .ok_or_else(|| IvyError::InvalidCursor("node cursor must start with 'n:'".into()))?;
+        let node_id = rest
+            .parse()
+            .map_err(|_| IvyError::InvalidCursor(format!("invalid node id in cursor: {rest}")))?;
         Ok(Cursor::Node(node_id))
     }
 
     pub(crate) fn decode_edge(s: &str) -> Result<Self> {
-        let rest = s.strip_prefix("e:").ok_or_else(|| {
-            IvyError::InvalidCursor("edge cursor must start with 'e:'".into())
-        })?;
-        let edge_id = rest.parse().map_err(|_| {
-            IvyError::InvalidCursor(format!("invalid edge id in cursor: {rest}"))
-        })?;
+        let rest = s
+            .strip_prefix("e:")
+            .ok_or_else(|| IvyError::InvalidCursor("edge cursor must start with 'e:'".into()))?;
+        let edge_id = rest
+            .parse()
+            .map_err(|_| IvyError::InvalidCursor(format!("invalid edge id in cursor: {rest}")))?;
         Ok(Cursor::Edge(edge_id))
     }
 

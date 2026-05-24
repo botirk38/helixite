@@ -313,8 +313,8 @@ impl NodePropertyIndexes {
                 continue;
             };
 
-            let node: Node = bincode::deserialize(&node_bytes)
-                .map_err(|e| IvyError::Codec(e.to_string()))?;
+            let node: Node =
+                bincode::deserialize(&node_bytes).map_err(|e| IvyError::Codec(e.to_string()))?;
 
             if node.label != label {
                 continue;
@@ -422,10 +422,8 @@ impl NodePropertyIndexes {
             {
                 for entry in txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
                     let entry = entry?;
-                    let existing_id =
-                        NodePropertyIndex::decode_node_id(entry.key).ok_or_else(|| {
-                            IvyError::Storage("corrupt property index key".into())
-                        })?;
+                    let existing_id = NodePropertyIndex::decode_node_id(entry.key)
+                        .ok_or_else(|| IvyError::Storage("corrupt property index key".into()))?;
                     if existing_id != id {
                         return Err(IvyError::DuplicateKey(format!(
                             "node unique property {label}::{property}"
@@ -723,10 +721,8 @@ impl EdgePropertyIndexes {
             {
                 for entry in txn.iter(Db::Properties, Scan::Prefix(&prefix))? {
                     let entry = entry?;
-                    let existing_id =
-                        EdgePropertyIndex::decode_edge_id(entry.key).ok_or_else(|| {
-                            IvyError::Storage("corrupt property index key".into())
-                        })?;
+                    let existing_id = EdgePropertyIndex::decode_edge_id(entry.key)
+                        .ok_or_else(|| IvyError::Storage("corrupt property index key".into()))?;
                     if existing_id != id {
                         return Err(IvyError::DuplicateKey(format!(
                             "edge unique property {label}::{property}"

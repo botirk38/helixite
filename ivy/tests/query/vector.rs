@@ -1,4 +1,4 @@
-use ivy::{IvyBuilder, HnswConfig, Value};
+use ivy::{HnswConfig, IvyBuilder, Value};
 use tempfile::tempdir;
 
 #[test]

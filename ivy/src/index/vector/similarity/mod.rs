@@ -56,9 +56,7 @@ impl SimilarityKind {
             3 => Err(IvyError::Codec(
                 "custom similarity cannot be loaded from persisted index".into(),
             )),
-            other => Err(IvyError::Codec(format!(
-                "unknown similarity kind: {other}"
-            ))),
+            other => Err(IvyError::Codec(format!("unknown similarity kind: {other}"))),
         }
     }
 }

@@ -115,9 +115,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
 
     pub fn collect(self) -> Result<Vec<Node>> {
         if self.after.is_some() {
-            return Err(IvyError::InvalidConfig(
-                "after() requires page()".into(),
-            ));
+            return Err(IvyError::InvalidConfig("after() requires page()".into()));
         }
         self.storage.read(|txn| {
             let exec = NodeQueryExec {
@@ -134,9 +132,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
 
     pub fn ids(self) -> Result<Vec<NodeId>> {
         if self.after.is_some() {
-            return Err(IvyError::InvalidConfig(
-                "after() requires page()".into(),
-            ));
+            return Err(IvyError::InvalidConfig("after() requires page()".into()));
         }
         self.storage.read(|txn| {
             let exec = NodeQueryExec {
@@ -153,9 +149,7 @@ impl<'a, S: StorageEngine> NodeQuery<'a, S> {
 
     pub fn count(self) -> Result<usize> {
         if self.after.is_some() {
-            return Err(IvyError::InvalidConfig(
-                "after() requires page()".into(),
-            ));
+            return Err(IvyError::InvalidConfig("after() requires page()".into()));
         }
         self.storage.read(|txn| {
             let exec = NodeQueryExec {

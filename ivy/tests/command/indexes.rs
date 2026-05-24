@@ -8,10 +8,7 @@ fn test_create_node_property_index() {
 
     db.add_node(
         "User",
-        vec![(
-            "name".to_string(),
-            ivy::Value::String("Alice".to_string()),
-        )],
+        vec![("name".to_string(), ivy::Value::String("Alice".to_string()))],
     )
     .unwrap();
 
@@ -38,10 +35,7 @@ fn test_create_duplicate_node_property_index_fails() {
 
     db.add_node(
         "User",
-        vec![(
-            "name".to_string(),
-            ivy::Value::String("Alice".to_string()),
-        )],
+        vec![("name".to_string(), ivy::Value::String("Alice".to_string()))],
     )
     .unwrap();
 
@@ -154,10 +148,7 @@ fn test_drop_node_property_index() {
 
     db.add_node(
         "User",
-        vec![(
-            "name".to_string(),
-            ivy::Value::String("Alice".to_string()),
-        )],
+        vec![("name".to_string(), ivy::Value::String("Alice".to_string()))],
     )
     .unwrap();
 
@@ -333,10 +324,7 @@ fn test_drop_nonexistent_node_property_index_fails() {
 
     db.add_node(
         "User",
-        vec![(
-            "name".to_string(),
-            ivy::Value::String("Alice".to_string()),
-        )],
+        vec![("name".to_string(), ivy::Value::String("Alice".to_string()))],
     )
     .unwrap();
 
@@ -379,10 +367,7 @@ fn test_drop_then_recreate_node_property_index() {
 
     db.add_node(
         "User",
-        vec![(
-            "name".to_string(),
-            ivy::Value::String("Alice".to_string()),
-        )],
+        vec![("name".to_string(), ivy::Value::String("Alice".to_string()))],
     )
     .unwrap();
 
@@ -432,10 +417,7 @@ fn test_multiple_node_property_indexes_for_same_label() {
     db.add_node(
         "User",
         vec![
-            (
-                "name".to_string(),
-                ivy::Value::String("Alice".to_string()),
-            ),
+            ("name".to_string(), ivy::Value::String("Alice".to_string())),
             (
                 "email".to_string(),
                 ivy::Value::String("alice@example.com".to_string()),
@@ -493,10 +475,7 @@ fn test_node_property_index_survives_reopen() {
         let db = IvyBuilder::new().open(path).unwrap();
         db.add_node(
             "User",
-            vec![(
-                "name".to_string(),
-                ivy::Value::String("Alice".to_string()),
-            )],
+            vec![("name".to_string(), ivy::Value::String("Alice".to_string()))],
         )
         .unwrap();
         db.indexes()
@@ -521,10 +500,7 @@ fn test_node_property_index_persists_after_reopen() {
         let db = IvyBuilder::new().open(path).unwrap();
         db.add_node(
             "User",
-            vec![(
-                "name".to_string(),
-                ivy::Value::String("Alice".to_string()),
-            )],
+            vec![("name".to_string(), ivy::Value::String("Alice".to_string()))],
         )
         .unwrap();
         db.indexes()

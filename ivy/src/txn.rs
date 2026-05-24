@@ -286,8 +286,8 @@ impl<'a> NodeMut<'a> {
             .get(Db::Nodes, &self.id.to_be_bytes())?
             .ok_or(IvyError::NodeNotFound(self.id))?;
 
-        let current: Node = bincode::deserialize(&current_bytes)
-            .map_err(|e| IvyError::Codec(e.to_string()))?;
+        let current: Node =
+            bincode::deserialize(&current_bytes).map_err(|e| IvyError::Codec(e.to_string()))?;
 
         let mut label = current.label.clone();
         let mut properties = current.properties.clone();
@@ -321,8 +321,7 @@ impl<'a> NodeMut<'a> {
             properties,
         };
 
-        let bytes =
-            bincode::serialize(&updated).map_err(|e| IvyError::Codec(e.to_string()))?;
+        let bytes = bincode::serialize(&updated).map_err(|e| IvyError::Codec(e.to_string()))?;
         self.txn.put(Db::Nodes, &self.id.to_be_bytes(), &bytes)?;
 
         Ok(())
@@ -362,8 +361,8 @@ impl<'a> EdgeMut<'a> {
             .get(Db::Edges, &self.id.to_be_bytes())?
             .ok_or(IvyError::EdgeNotFound(self.id))?;
 
-        let current: Edge = bincode::deserialize(&current_bytes)
-            .map_err(|e| IvyError::Codec(e.to_string()))?;
+        let current: Edge =
+            bincode::deserialize(&current_bytes).map_err(|e| IvyError::Codec(e.to_string()))?;
 
         let mut label = current.label.clone();
         let mut properties = current.properties.clone();
@@ -419,8 +418,7 @@ impl<'a> EdgeMut<'a> {
 
         EdgePropertyIndexes::replace(self.txn, &registered, &current, &updated)?;
 
-        let bytes =
-            bincode::serialize(&updated).map_err(|e| IvyError::Codec(e.to_string()))?;
+        let bytes = bincode::serialize(&updated).map_err(|e| IvyError::Codec(e.to_string()))?;
         self.txn.put(Db::Edges, &self.id.to_be_bytes(), &bytes)?;
 
         Ok(())
@@ -437,8 +435,7 @@ fn delete_edge_from_txn(
         None => return Ok(()),
     };
 
-    let edge: Edge =
-        bincode::deserialize(&bytes).map_err(|e| IvyError::Codec(e.to_string()))?;
+    let edge: Edge = bincode::deserialize(&bytes).map_err(|e| IvyError::Codec(e.to_string()))?;
 
     EdgeIndex::delete(txn, edge.from, edge.to, &edge.label, edge.id)?;
     EdgePropertyIndexes::delete(txn, edge_registry, &edge)?;

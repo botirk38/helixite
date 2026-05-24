@@ -83,9 +83,7 @@ fn test_memory_txn_delete_persists_across_transactions() {
         })
         .unwrap();
 
-    let result = storage
-        .read(|txn| txn.get(Db::Metadata, b"key"))
-        .unwrap();
+    let result = storage.read(|txn| txn.get(Db::Metadata, b"key")).unwrap();
     assert_eq!(result, None);
 }
 

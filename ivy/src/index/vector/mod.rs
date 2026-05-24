@@ -145,8 +145,8 @@ impl VectorIndex {
                 continue;
             };
 
-            let node: Node = bincode::deserialize(&node_bytes)
-                .map_err(|e| IvyError::Codec(e.to_string()))?;
+            let node: Node =
+                bincode::deserialize(&node_bytes).map_err(|e| IvyError::Codec(e.to_string()))?;
 
             if node.label != label {
                 continue;

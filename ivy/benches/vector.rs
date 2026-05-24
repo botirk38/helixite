@@ -1,5 +1,5 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use ivy::{IvyBuilder, HnswConfig, Value};
+use ivy::{HnswConfig, IvyBuilder, Value};
 use tempfile::TempDir;
 
 fn random_vector(dim: usize, seed: u64) -> Vec<f32> {

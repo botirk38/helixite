@@ -38,10 +38,7 @@ fn test_close_syncs_and_consumes_db() {
 fn test_open_with_config() {
     let dir = tempdir().unwrap();
     let config = Config::default().with_map_size(64 * 1024 * 1024);
-    let db = IvyBuilder::new()
-        .config(config)
-        .open(dir.path())
-        .unwrap();
+    let db = IvyBuilder::new().config(config).open(dir.path()).unwrap();
     assert!(db.path().exists());
 }
 
